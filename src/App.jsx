@@ -2,102 +2,174 @@ import { useState, useEffect } from 'react';
 import Modal from './components/Modal';
 import Toast from './components/Toast';
 import Dashboard from './components/Dashboard';
+import Login from './components/Login';
+import Signup from './components/Signup';
+import ForgotPassword from './components/ForgotPassword';
+import ResetPassword from './components/ResetPassword';
 import { supabase } from './lib/supabase';
-import { LayoutDashboard, ClipboardList, RefreshCw } from 'lucide-react';
+import {
+    LayoutDashboard,
+    ClipboardList,
+    RefreshCw,
+    LogOut,
+    User,
+    ShieldCheck,
+    Briefcase,
+    Loader2,
+    Users,
+    Settings
+} from 'lucide-react';
 
 const App = () => {
-    // ── Helper: today as YYYY-MM-DD ──
-    const getTodayISO = () => new Date().toISOString().slice(0, 10);
+    // ── Auth & Session State ──
+    const [session, setSession] = useState(null);
+    const [profile, setProfile] = useState(null);
+    const [authLoading, setAuthLoading] = useState(true);
+    const [view, setView] = useState('login'); // 'login', 'signup', 'forgot-password', 'reset-password', 'app'
 
-    // ── Form State ──
-    const [performerName, setPerformerName] = useState(
-        () => localStorage.getItem('lastPerformerName') || ''
-    );
+    // ── App State ──
+    const getTodayISO = () => new Date().toISOString().slice(0, 10);
+    const [performerName, setPerformerName] = useState('');
     const [titleName, setTitleName] = useState('');
     const [completedPages, setCompletedPages] = useState('');
     const [taskType, setTaskType] = useState('');
     const [estimatedTime, setEstimatedTime] = useState('');
     const [takenTime, setTakenTime] = useState('');
     const [entryDate, setEntryDate] = useState(getTodayISO);
-
-    // ── Data State ──
-    const [statusEntries, setStatusEntries] = useState(() => {
-        try {
-            const saved = localStorage.getItem('cbpet_statusEntries');
-            return saved ? JSON.parse(saved) : [];
-        } catch {
-            return [];
-        }
-    });
-
-    // ── UI State ──
-    const [darkMode, setDarkMode] = useState(() => {
-        const saved = localStorage.getItem('cbpet_darkMode');
-        return saved === 'true';
-    });
+    const [statusEntries, setStatusEntries] = useState([]);
+    const [darkMode, setDarkMode] = useState(() => localStorage.getItem('cbpet_darkMode') === 'true');
     const [showToast, setShowToast] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
     const [filterDate, setFilterDate] = useState('');
-
-    // ── Modal State ──
     const [showErrorModal, setShowErrorModal] = useState(false);
-    const [showNoDataModal, setShowNoDataModal] = useState(false);
-    const [showConfirmClearModal, setShowConfirmClearModal] = useState(false);
-    const [showDailySummaryModal, setShowDailySummaryModal] = useState(false);
-    const [dailySummaryData, setDailySummaryData] = useState({});
     const [activeTab, setActiveTab] = useState('form');
     const [isSyncing, setIsSyncing] = useState(false);
 
-    // ── Effects ──
-    useEffect(() => {
-        localStorage.setItem('cbpet_statusEntries', JSON.stringify(statusEntries));
-    }, [statusEntries]);
+    // ── Admin State ──
+    const [allProfiles, setAllProfiles] = useState([]);
+    const [isAdminSyncing, setIsAdminSyncing] = useState(false);
 
+    // ── Auth Effects ──
     useEffect(() => {
-        localStorage.setItem('cbpet_darkMode', darkMode);
-        if (darkMode) {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setSession(session);
+            if (session) fetchProfile(session.user.id);
+            setAuthLoading(false);
+        });
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setSession(session);
+            if (session) {
+                fetchProfile(session.user.id);
+                const hash = window.location.hash;
+                if (hash && hash.includes('access_token') && hash.includes('type=recovery')) {
+                    setView('reset-password');
+                } else {
+                    setView('app');
+                }
+            } else {
+                setProfile(null);
+                setView('login');
+            }
+        });
+
+        return () => subscription.unsubscribe();
+    }, []);
+
+    const fetchProfile = async (uid) => {
+        try {
+            const { data, error } = await supabase.from('profiles').select('*').eq('id', uid).single();
+            if (error) throw error;
+            setProfile(data);
+            if (data.performer_name) setPerformerName(data.performer_name);
+        } catch (error) {
+            console.error('Error fetching profile:', error.message);
         }
+    };
+
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+    };
+
+    // ── App Data Effects ──
+    useEffect(() => {
+        if (darkMode) document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+        localStorage.setItem('cbpet_darkMode', darkMode);
     }, [darkMode]);
 
     useEffect(() => {
-        fetchFromSupabase();
-    }, []);
+        if (session) {
+            fetchFromSupabase();
+            if (profile?.role === 'admin' || profile?.role === 'manager') fetchAllProfiles();
+        }
+    }, [session, profile]);
 
-    // ── Supabase Logic ──
+    // ── Data Logic ──
     const fetchFromSupabase = async () => {
-        if (!supabase) return;
+        if (!supabase || !session) return;
         setIsSyncing(true);
         try {
-            const { data, error } = await supabase
-                .from('status_entries')
-                .select('*')
-                .order('date', { ascending: false });
-
-            if (error) throw error;
-            if (data && data.length > 0) {
-                setStatusEntries(data);
-                setToastMessage('🔄 Synced from cloud');
-                setShowToast(true);
+            let query = supabase.from('status_entries').select('*').order('date', { ascending: false });
+            if (profile?.role === 'performer') {
+                query = query.eq('user_id', session.user.id);
+            } else if (profile?.role === 'lead') {
+                query = query.eq('client_id', profile.client_id);
             }
+            const { data, error } = await query;
+            if (error) throw error;
+            setStatusEntries(data || []);
         } catch (error) {
-            console.error('Error fetching from Supabase:', error.message);
+            console.error('Error fetching entries:', error.message);
         } finally {
             setIsSyncing(false);
         }
     };
 
-    const syncToSupabase = async (newEntry) => {
-        if (!supabase) return;
+    const fetchAllProfiles = async () => {
+        if (profile?.role !== 'admin' && profile?.role !== 'manager') return;
+        setIsAdminSyncing(true);
+        try {
+            const { data, error } = await supabase.from('profiles').select('*').order('performer_name', { ascending: true });
+            if (error) throw error;
+            setAllProfiles(data || []);
+        } catch (error) {
+            console.error('Error fetching profiles:', error.message);
+        } finally {
+            setIsAdminSyncing(false);
+        }
+    };
+
+    const handleUpdateUserRole = async (userId, newRole, clientId) => {
         try {
             const { error } = await supabase
-                .from('status_entries')
-                .insert([newEntry]);
+                .from('profiles')
+                .update({ role: newRole, client_id: clientId })
+                .eq('id', userId);
+
+            if (error) throw error;
+            setToastMessage('✅ User updated successfully');
+            setShowToast(true);
+            fetchAllProfiles();
+        } catch (error) {
+            alert('Error updating user: ' + error.message);
+        }
+    };
+
+    const syncToSupabase = async (newEntry) => {
+        if (!supabase || !session) return;
+        try {
+            const entryWithAuth = {
+                ...newEntry,
+                user_id: session.user.id,
+                client_id: profile?.client_id || 'DEFAULT_CLIENT'
+            };
+            const { error } = await supabase.from('status_entries').insert([entryWithAuth]);
             if (error) throw error;
         } catch (error) {
-            console.error('Error syncing to Supabase:', error.message);
+            console.error('Error syncing:', error.message);
+            setToastMessage('❌ Sync failed: ' + error.message);
+            setShowToast(true);
         }
     };
 
@@ -106,14 +178,9 @@ const App = () => {
         Prestyle: 900, Preedit: 300, 'FL Validation': 600, 'Revises Validation': 1200,
         Normalisation: 300, 'Cast-off XML Conversion': 4, 'Ref Edit': 400, 'Style Editing': 80
     };
-    const standardTargetUnits = {
-        Prestyle: 'pages/day', Preedit: 'pages/day', 'FL Validation': 'pages/day', 'Revises Validation': 'pages/day',
-        Normalisation: 'pages/day', 'Cast-off XML Conversion': 'titles/day', 'Ref Edit': 'references/day', 'Style Editing': 'pages/day'
-    };
     const STANDARD_WORK_HOURS_PER_DAY = 8;
     const MOTIVATIONAL_MESSAGE = 'Keep Trying!';
 
-    // ── Calculations ──
     const timeAchievedPercentage = estimatedTime > 0 && takenTime > 0
         ? ((estimatedTime / takenTime) * 100).toFixed(2) : 0;
 
@@ -121,7 +188,7 @@ const App = () => {
         ? ((completedPages / ((standardTargets[taskType] / STANDARD_WORK_HOURS_PER_DAY) * takenTime)) * 100).toFixed(2) : 0;
 
     // ── Handlers ──
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!performerName || !titleName || !completedPages || !taskType || !estimatedTime || !takenTime || !entryDate) {
             setShowErrorModal(true);
@@ -134,204 +201,324 @@ const App = () => {
             estimatedTime: Number(estimatedTime), takenTime: Number(takenTime),
             timeAchieved: timeAchievedPercentage, targetAchieved: targetAchievedPercentage, status: achievementStatus
         };
-        setStatusEntries(prev => [...prev, newEntry]);
-        syncToSupabase(newEntry);
-        localStorage.setItem('lastPerformerName', performerName.trim());
+        setStatusEntries(prev => [newEntry, ...prev]);
+        await syncToSupabase(newEntry);
         setTitleName(''); setCompletedPages(''); setTaskType(''); setEstimatedTime(''); setTakenTime('');
-        setToastMessage('✅ Entry saved successfully!'); setShowToast(true);
+        setToastMessage('✅ Status saved and synced!'); setShowToast(true);
     };
 
-    const handleDeleteEntry = (id) => setStatusEntries(prev => prev.filter(e => e.id !== id));
-    const confirmClearHistory = () => {
-        setStatusEntries([]); setShowConfirmClearModal(false);
-        setToastMessage('🗑️ History cleared'); setShowToast(true);
+    const handleDeleteEntry = async (id) => {
+        if (!window.confirm('Delete this entry?')) return;
+        try {
+            const { error } = await supabase.from('status_entries').delete().eq('id', id);
+            if (error) throw error;
+            setStatusEntries(prev => prev.filter(e => e.id !== id));
+            setToastMessage('🗑️ Entry deleted'); setShowToast(true);
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
     };
 
-    const handleCompleteDailySubmission = () => {
-        const today = getTodayISO();
-        const dailyEntries = statusEntries.filter(e => e.date === today);
-        if (dailyEntries.length === 0) { setShowNoDataModal(true); return; }
-        let totalCompletedWork = 0, totalTakenTime = 0, sumOfWeightedTargetAchievement = 0;
-        dailyEntries.forEach(entry => {
-            totalCompletedWork += entry.completedPages; totalTakenTime += entry.takenTime;
-            const target = standardTargets[entry.taskType] || 0;
-            if (target > 0) {
-                const units = (entry.completedPages / target) * STANDARD_WORK_HOURS_PER_DAY;
-                sumOfWeightedTargetAchievement += (units / entry.takenTime) * 100 * entry.takenTime;
-            }
-        });
-        const dailyTargetAchieved = totalTakenTime > 0 ? (sumOfWeightedTargetAchievement / totalTakenTime).toFixed(2) : 0;
-        setDailySummaryData({ totalCompletedWork, totalTakenTime, dailyTargetAchieved, isAchieved: dailyTargetAchieved >= 100 });
-        setShowDailySummaryModal(true);
-    };
+    if (authLoading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+                <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+            </div>
+        );
+    }
 
-    const handleDownloadCSV = () => {
-        if (statusEntries.length === 0) { setShowNoDataModal(true); return; }
-        const headers = ['Date', 'Performer Name', 'Title Name', 'Task Type', 'Standard Target', 'Completed Work', 'Estimated Time (hours)', 'Taken Time (hours)', 'Time Achieved (%)', 'Target Achieved (%)', 'Status'];
-        const escapeCSV = val => {
-            const str = String(val);
-            return str.includes(',') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str;
-        };
-        const rows = statusEntries.map(e => [
-            e.date, escapeCSV(e.performerName || ''), escapeCSV(e.titleName), escapeCSV(e.taskType),
-            `${standardTargets[e.taskType] || ''} ${standardTargetUnits[e.taskType] || ''}`.trim(),
-            e.completedPages, e.estimatedTime, e.takenTime, e.timeAchieved, e.targetAchieved, e.status
-        ]);
-        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url); link.setAttribute('download', `daily_report_${getTodayISO()}.csv`);
-        link.style.visibility = 'hidden'; document.body.appendChild(link);
-        link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
-    };
+    if (!session) {
+        if (view === 'signup') return <Signup setView={setView} />;
+        if (view === 'forgot-password') return <ForgotPassword setView={setView} />;
+        if (view === 'reset-password') return <ResetPassword setView={setView} />;
+        return <Login setView={setView} />;
+    }
 
     const displayedEntries = filterDate ? statusEntries.filter(e => e.date === filterDate) : statusEntries;
 
     return (
-        <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-100 p-4 transition-colors duration-300">
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-gray-100 p-4 transition-colors duration-300 font-sans">
             <Toast show={showToast} message={toastMessage} onDone={() => setShowToast(false)} />
 
-            <Modal show={showErrorModal} onClose={() => setShowErrorModal(false)}>
-                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-red-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
+            <nav className="container mx-auto max-w-7xl mb-6 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
+                        <ShieldCheck size={24} />
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">CBPET Tracker</h1>
+                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                            <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700">{profile?.role || 'Performer'}</span>
+                            {profile?.client_id && <span>• {profile.client_id}</span>}
+                        </div>
+                    </div>
                 </div>
-                <h3 className="text-xl font-bold mb-2 text-red-600">Validation Error</h3>
-                <p className="text-gray-600 dark:text-gray-300 mb-6">Please fill out all fields.</p>
-                <button onClick={() => setShowErrorModal(false)} className="px-8 py-2.5 bg-blue-600 text-white rounded-xl">OK</button>
-            </Modal>
 
-            <Modal show={showNoDataModal} onClose={() => setShowNoDataModal(false)}>
-                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+                <div className="flex items-center gap-4">
+                    <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 rounded-lg text-xs font-bold font-mono">
+                        <User size={14} className="text-gray-400" />
+                        <span>{session.user.email}</span>
+                    </div>
+                    <button onClick={() => setDarkMode(!darkMode)} className="p-2.5 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                        {darkMode ? '☀️' : '🌙'}
+                    </button>
+                    <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 rounded-xl font-bold transition-all text-sm uppercase tracking-widest">
+                        <LogOut size={18} />
+                        Logout
+                    </button>
                 </div>
-                <h3 className="text-xl font-bold mb-2 text-amber-600">No Data Found</h3>
-                <button onClick={() => setShowNoDataModal(false)} className="px-8 py-2.5 bg-blue-600 text-white rounded-xl">OK</button>
-            </Modal>
+            </nav>
 
-            <Modal show={showConfirmClearModal} onClose={() => setShowConfirmClearModal(false)}>
-                <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-8 h-8 text-red-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                </div>
-                <h3 className="text-xl font-bold mb-2 text-red-600">Clear All History?</h3>
-                <div className="flex gap-3 justify-center">
-                    <button onClick={() => setShowConfirmClearModal(false)} className="px-6 py-2.5 bg-gray-200">Cancel</button>
-                    <button onClick={confirmClearHistory} className="px-6 py-2.5 bg-red-600 text-white">Yes, Clear All</button>
-                </div>
-            </Modal>
-
-            <Modal show={showDailySummaryModal} onClose={() => setShowDailySummaryModal(false)} maxWidth="max-w-lg">
-                <div className={`w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center ${dailySummaryData.isAchieved ? 'bg-green-100' : 'bg-blue-100'}`}>
-                    {dailySummaryData.isAchieved ? <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-8.08" /><polyline points="22 4 12 14.01 9 11.01" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>}
-                </div>
-                <h3 className={`text-2xl font-bold mb-4 ${dailySummaryData.isAchieved ? 'text-green-600' : 'text-blue-600'}`}>Summary</h3>
-                <div className="space-y-2 mb-6 text-left bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-                    <p className="flex justify-between"><span>Work:</span> <strong>{dailySummaryData.totalCompletedWork}</strong></p>
-                    <p className="flex justify-between"><span>Hours:</span> <strong>{dailySummaryData.totalTakenTime}</strong></p>
-                    <p className="flex justify-between"><span>Achievement:</span> <strong className={dailySummaryData.isAchieved ? 'text-green-600' : 'text-amber-600'}>{dailySummaryData.dailyTargetAchieved}%</strong></p>
-                </div>
-                <button onClick={() => setShowDailySummaryModal(false)} className="px-8 py-2.5 bg-blue-600 text-white rounded-xl">Close</button>
-            </Modal>
-
-            <div className="container mx-auto max-w-7xl mb-6 flex justify-center">
-                <div className="bg-white dark:bg-gray-800 p-1.5 rounded-2xl shadow-lg flex gap-2">
-                    <button onClick={() => setActiveTab('form')} className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold ${activeTab === 'form' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}><ClipboardList size={20} />Entry Form</button>
-                    <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}><LayoutDashboard size={20} />Dashboard</button>
+            <div className="container mx-auto max-w-7xl mb-8 flex justify-center">
+                <div className="bg-white dark:bg-gray-900 p-1.5 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 flex gap-2 overflow-x-auto">
+                    <button onClick={() => setActiveTab('form')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'form' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                        <ClipboardList size={18} />Entry Form
+                    </button>
+                    <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                        <LayoutDashboard size={18} />Analytics
+                    </button>
+                    {(profile?.role === 'admin' || profile?.role === 'manager') && (
+                        <button onClick={() => setActiveTab('admin')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'admin' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                            <Users size={18} />User Management
+                        </button>
+                    )}
                 </div>
             </div>
 
-            <div className="container mx-auto max-w-7xl p-6 md:p-10 bg-white dark:bg-gray-800 rounded-2xl shadow-xl">
-                <header className="text-center mb-10 relative">
-                    <button onClick={() => setDarkMode(!darkMode)} className="absolute top-0 right-0 p-3 rounded-xl bg-gray-100 dark:bg-gray-700">{darkMode ? '☀️' : '🌙'}</button>
-                    <button onClick={fetchFromSupabase} disabled={isSyncing} className={`absolute top-0 right-14 p-3 rounded-xl bg-gray-100 dark:bg-gray-700 ${isSyncing ? 'animate-spin' : ''}`}><RefreshCw size={24} /></button>
-                    <h1 className="text-4xl md:text-5xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Daily Status Tracker CBPET</h1>
-                </header>
-
+            <div className="container mx-auto max-w-7xl bg-white dark:bg-gray-900 rounded-3xl p-6 md:p-10 shadow-xl border border-gray-100 dark:border-gray-800 min-h-[600px]">
                 {activeTab === 'dashboard' ? (
-                    <Dashboard entries={statusEntries} />
+                    <Dashboard entries={statusEntries} userProfile={profile} />
+                ) : activeTab === 'admin' ? (
+                    <div className="space-y-8">
+                        <div className="flex justify-between items-center">
+                            <h2 className="text-2xl font-black flex items-center gap-3">
+                                <Users className="text-purple-600" />
+                                System Administration
+                            </h2>
+                            <button onClick={fetchAllProfiles} disabled={isAdminSyncing} className={`p-2 bg-purple-50 dark:bg-purple-900/30 text-purple-600 rounded-lg ${isAdminSyncing ? 'animate-spin' : ''}`}>
+                                <RefreshCw size={20} />
+                            </button>
+                        </div>
+
+                        <div className="overflow-x-auto rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-gray-50 dark:bg-gray-800/50">
+                                    <tr>
+                                        <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">User Name</th>
+                                        <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">Assignment</th>
+                                        <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">Role</th>
+                                        <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y dark:divide-gray-800">
+                                    {allProfiles.map(p => (
+                                        <AdminUserRow
+                                            key={p.id}
+                                            user={p}
+                                            onUpdate={handleUpdateUserRole}
+                                            isSelf={p.id === session.user.id}
+                                            currentUserRole={profile?.role}
+                                        />
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 ) : (
-                    <div className="flex flex-col lg:flex-row gap-8">
-                        <div className="w-full lg:w-5/12">
-                            <h2 className="text-2xl font-bold mb-4">New Entry</h2>
-                            <form onSubmit={handleSubmit} className="space-y-4">
-                                <div><label className="block text-sm mb-1">Performer</label><input type="text" value={performerName} onChange={e => setPerformerName(e.target.value)} className="w-full p-3 rounded-lg border dark:bg-gray-700" required /></div>
-                                <div><label className="block text-sm mb-1">Date</label><input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} className="w-full p-3 rounded-lg border dark:bg-gray-700" required /></div>
-                                <div><label className="block text-sm mb-1">Title</label><input type="text" value={titleName} onChange={e => setTitleName(e.target.value)} className="w-full p-3 rounded-lg border dark:bg-gray-700" required /></div>
-                                <div>
-                                    <label className="block text-sm mb-1">Task</label>
-                                    <select value={taskType} onChange={e => setTaskType(e.target.value)} className="w-full p-3 rounded-lg border dark:bg-gray-700" required>
-                                        <option value="">Select</option>
-                                        {Object.keys(standardTargets).map(k => <option key={k} value={k}>{k}</option>)}
-                                    </select>
+                    <div className="flex flex-col lg:flex-row gap-12">
+                        <div className="flex-1 max-w-xl">
+                            <div className="flex items-center gap-3 mb-8">
+                                <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-blue-600"><Briefcase size={24} /></div>
+                                <h2 className="text-2xl font-bold">Log Activity</h2>
+                            </div>
+
+                            <form onSubmit={handleSubmit} className="space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Performer</label>
+                                        {(profile?.role === 'admin' || profile?.role === 'manager') ? (
+                                            <select
+                                                value={performerName}
+                                                onChange={e => setPerformerName(e.target.value)}
+                                                className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E')] bg-[length:20px_20px] bg-[right_1rem_center] bg-no-repeat"
+                                            >
+                                                <option value={profile.performer_name}>{profile.performer_name} (You)</option>
+                                                {allProfiles.filter(p => p.id !== session.user.id).map(p => (
+                                                    <option key={p.id} value={p.performer_name}>{p.performer_name}</option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <input type="text" value={performerName} readOnly className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-500 cursor-not-allowed font-medium" />
+                                        )}
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Date</label>
+                                        <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" required />
+                                    </div>
                                 </div>
-                                <div><label className="block text-sm mb-1">Work Done</label><input type="number" value={completedPages} onChange={e => setCompletedPages(e.target.value)} className="w-full p-3 rounded-lg border dark:bg-gray-700" required /></div>
-                                <div><label className="block text-sm mb-1">Est Hours</label><input type="number" value={estimatedTime} onChange={e => setEstimatedTime(e.target.value)} className="w-full p-3 rounded-lg border dark:bg-gray-700" step="0.1" required /></div>
-                                <div><label className="block text-sm mb-1">Taken Hours</label><input type="number" value={takenTime} onChange={e => setTakenTime(e.target.value)} className="w-full p-3 rounded-lg border dark:bg-gray-700" step="0.1" required /></div>
-                                <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl">Save Status</button>
+
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Project/Title Name</label>
+                                    <input type="text" value={titleName} onChange={e => setTitleName(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" placeholder="e.g., Springer Nature Vol 42" required />
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Task Type</label>
+                                        <select value={taskType} onChange={e => setTaskType(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E')] bg-[length:20px_20px] bg-[right_1rem_center] bg-no-repeat font-medium" required>
+                                            <option value="">Select Task</option>
+                                            {Object.keys(standardTargets).map(k => <option key={k} value={k}>{k}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Work Done</label>
+                                        <input type="number" value={completedPages} onChange={e => setCompletedPages(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" placeholder="150" required />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Estimated Hours</label>
+                                        <input type="number" value={estimatedTime} onChange={e => setEstimatedTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" placeholder="8.0" required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Taken Hours</label>
+                                        <input type="number" value={takenTime} onChange={e => setTakenTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" placeholder="7.5" required />
+                                    </div>
+                                </div>
+
+                                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl shadow-lg shadow-blue-500/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
+                                    <ShieldCheck size={20} />Authorize and Log
+                                </button>
                             </form>
                         </div>
 
-                        <div className="w-full lg:w-7/12">
-                            <h2 className="text-2xl font-bold mb-4">Live Preview</h2>
-                            <div className="grid grid-cols-2 gap-4 mb-8">
-                                <div className="p-5 rounded-xl bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500">
-                                    <h3 className="text-sm">Target Achieved</h3>
-                                    <p className="text-3xl font-extrabold text-green-600">{targetAchievedPercentage}%</p>
+                        <div className="flex-1 space-y-8">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="p-6 rounded-2xl bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900">
+                                    <p className="text-[10px] font-black text-green-600 uppercase tracking-widest mb-1">Target Achievement</p>
+                                    <span className={`text-4xl font-extrabold ${Number(targetAchievedPercentage) >= 100 ? 'text-green-700 dark:text-green-400' : 'text-amber-600'}`}>{targetAchievedPercentage}%</span>
                                 </div>
-                                <div className="p-5 rounded-xl bg-purple-50 dark:bg-purple-900/20 border-l-4 border-purple-500">
-                                    <h3 className="text-sm">Time Efficiency</h3>
-                                    <p className="text-3xl font-extrabold text-purple-600">{timeAchievedPercentage}%</p>
+                                <div className="p-6 rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900">
+                                    <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Time Efficiency</p>
+                                    <span className="text-4xl font-extrabold text-indigo-700 dark:text-indigo-400">{timeAchievedPercentage}%</span>
                                 </div>
                             </div>
 
-                            <div className="flex justify-between mb-4">
-                                <h3 className="text-xl font-bold">History</h3>
-                                {statusEntries.length > 0 && <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="p-2 text-sm border dark:bg-gray-700" />}
-                            </div>
+                            <div className="bg-gray-50 dark:bg-gray-800/50 rounded-3xl p-6 border border-gray-100 dark:border-gray-800">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-sm font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">History Log <span className="text-[10px] bg-white dark:bg-gray-700 px-2 py-0.5 rounded-full border border-gray-100 dark:border-gray-600">{statusEntries.length}</span></h3>
+                                    <div className="flex items-center gap-2">
+                                        <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="p-2 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-900 rounded-lg outline-none font-bold" />
+                                        <button onClick={fetchFromSupabase} disabled={isSyncing} className={`p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg ${isSyncing ? 'animate-spin' : ''}`}>
+                                            <RefreshCw size={14} />
+                                        </button>
+                                    </div>
+                                </div>
 
-                            {displayedEntries.length > 0 ? (
-                                <>
-                                    <div className="overflow-x-auto rounded-xl shadow-md mb-4">
-                                        <table className="min-w-full divide-y dark:divide-gray-700">
-                                            <thead className="bg-gray-100 dark:bg-gray-700">
-                                                <tr>
-                                                    <th className="px-4 py-3 text-left text-xs uppercase">Date</th>
-                                                    <th className="px-4 py-3 text-left text-xs uppercase">Performer</th>
-                                                    <th className="px-4 py-3 text-left text-xs uppercase">Title</th>
-                                                    <th className="px-4 py-3 text-left text-xs uppercase">Task</th>
-                                                    <th className="px-4 py-3 text-left text-xs uppercase">Done</th>
-                                                    <th className="px-4 py-3 text-left text-xs uppercase">Tgt %</th>
-                                                    <th className="px-4 py-3 text-center text-xs uppercase">X</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y dark:divide-gray-700">
-                                                {displayedEntries.map(e => (
-                                                    <tr key={e.id}>
-                                                        <td className="px-4 py-3 text-sm">{e.date}</td>
-                                                        <td className="px-4 py-3 text-sm">{e.performerName}</td>
-                                                        <td className="px-4 py-3 text-sm truncate max-w-[100px]">{e.titleName}</td>
-                                                        <td className="px-4 py-3 text-sm">{e.taskType}</td>
-                                                        <td className="px-4 py-3 text-sm">{e.completedPages}</td>
-                                                        <td className="px-4 py-3 text-sm">{e.targetAchieved}%</td>
-                                                        <td className="px-4 py-3 text-center"><button onClick={() => handleDeleteEntry(e.id)} className="text-red-500">🗑️</button></td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    <div className="flex gap-3">
-                                        <button onClick={handleDownloadCSV} className="flex-1 bg-green-600 text-white py-3 rounded-xl">CSV</button>
-                                        <button onClick={() => setShowConfirmClearModal(true)} className="flex-1 bg-red-600 text-white py-3 rounded-xl">Clear</button>
-                                        <button onClick={handleCompleteDailySubmission} className="flex-1 bg-blue-600 text-white py-3 rounded-xl">Complete</button>
-                                    </div>
-                                </>
-                            ) : <div className="p-8 text-center text-gray-400 bg-gray-50 dark:bg-gray-700/30 rounded-xl">No entries.</div>}
+                                <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {displayedEntries.length > 0 ? displayedEntries.map(e => (
+                                        <div key={e.id} className="p-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between hover:border-blue-200 transition-colors group">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="text-[10px] font-black text-gray-400">{e.date}</span>
+                                                    <span className="text-[9px] font-black uppercase py-0.5 px-1.5 bg-blue-50 dark:bg-blue-900/40 text-blue-600 rounded border border-blue-100 dark:border-blue-900">{e.taskType}</span>
+                                                </div>
+                                                <p className="font-bold text-sm truncate max-w-[200px] group-hover:text-blue-600 transition-colors" title={e.titleName}>{e.titleName}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className={`font-black text-sm ${e.targetAchieved >= 100 ? 'text-green-600' : 'text-amber-500'}`}>{e.targetAchieved}%</p>
+                                                <button onClick={() => handleDeleteEntry(e.id)} className="text-[10px] font-black uppercase text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">Delete</button>
+                                            </div>
+                                        </div>
+                                    )) : <div className="text-center py-20 bg-gray-50/50 dark:bg-gray-800/30 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-800"><p className="text-xs font-black uppercase text-gray-400">System Ready • No Logs Found</p></div>}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}
             </div>
-            <footer className="text-center mt-8 text-sm text-gray-400">© {new Date().getFullYear()} Daily Status Tracker</footer>
+
+            <footer className="container mx-auto max-w-7xl mt-8 text-center text-xs font-bold text-gray-400 dark:text-gray-600 uppercase tracking-[0.3em]">
+                &copy; {new Date().getFullYear()} CBPET Engine Alpha • Real-time Monitoring Active
+            </footer>
         </div>
+    );
+};
+
+// ── Admin Sub-Component ──
+const AdminUserRow = ({ user, onUpdate, isSelf, currentUserRole }) => {
+    const [role, setRole] = useState(user.role);
+    const [clientId, setClientId] = useState(user.client_id || '');
+    const [changed, setChanged] = useState(false);
+
+    const handleSave = () => {
+        onUpdate(user.id, role, clientId);
+        setChanged(false);
+    };
+
+    // Define which roles the current user can assign
+    const getAvailableRoles = () => {
+        if (currentUserRole === 'admin') {
+            return [
+                { value: 'performer', label: 'Performer' },
+                { value: 'lead', label: 'Client Lead' },
+                { value: 'manager', label: 'Manager' },
+                { value: 'admin', label: 'Admin' }
+            ];
+        }
+        if (currentUserRole === 'manager') {
+            // Managers can only assign performer or lead roles
+            return [
+                { value: 'performer', label: 'Performer' },
+                { value: 'lead', label: 'Client Lead' }
+            ];
+        }
+        return [];
+    };
+
+    const availableRoles = getAvailableRoles();
+
+    return (
+        <tr className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors group">
+            <td className="p-4">
+                <p className="font-bold text-sm tracking-tight">{user.performer_name}</p>
+                <p className="text-[10px] text-gray-400 font-medium font-mono">{user.id.slice(0, 8)}...</p>
+            </td>
+            <td className="p-4">
+                <input
+                    type="text"
+                    value={role === 'lead' ? clientId : 'ALL ACCESS'}
+                    disabled={role !== 'lead'}
+                    onChange={(e) => { setClientId(e.target.value); setChanged(true); }}
+                    placeholder="Enter Client ID"
+                    className="w-full bg-gray-50 dark:bg-gray-800 text-xs font-bold p-2.5 rounded-lg border border-transparent focus:border-purple-500 outline-none transition-all disabled:opacity-50"
+                />
+            </td>
+            <td className="p-4">
+                <select
+                    value={role}
+                    onChange={(e) => { setRole(e.target.value); setChanged(true); }}
+                    className="bg-gray-50 dark:bg-gray-800 text-xs font-bold p-2.5 rounded-lg border border-transparent focus:border-purple-500 outline-none transition-all"
+                    disabled={isSelf || (currentUserRole === 'manager' && (user.role === 'admin' || user.role === 'manager'))}
+                >
+                    {availableRoles.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                    {/* If current user is manager and target user is higher, show their current role as read-only */}
+                    {currentUserRole === 'manager' && (user.role === 'admin' || user.role === 'manager') && (
+                        <option value={user.role} disabled>{user.role.charAt(0).toUpperCase() + user.role.slice(1)}</option>
+                    )}
+                </select>
+            </td>
+            <td className="p-4">
+                {changed ? (
+                    <button onClick={handleSave} className="px-4 py-2 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-lg shadow-purple-500/30">Save</button>
+                ) : (
+                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Synchronized</span>
+                )}
+            </td>
+        </tr>
     );
 };
 
