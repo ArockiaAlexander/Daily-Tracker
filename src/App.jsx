@@ -6,6 +6,7 @@ import Login from './components/Login';
 import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
+import LandingPage from './components/LandingPage';
 import { supabase } from './lib/supabase';
 import {
     LayoutDashboard,
@@ -25,7 +26,7 @@ const App = () => {
     const [session, setSession] = useState(null);
     const [profile, setProfile] = useState(null);
     const [authLoading, setAuthLoading] = useState(true);
-    const [view, setView] = useState('login'); // 'login', 'signup', 'forgot-password', 'reset-password', 'app'
+    const [view, setView] = useState('landing'); // 'landing', 'login', 'signup', 'forgot-password', 'reset-password', 'app'
 
     // ── App State ──
     const getTodayISO = () => new Date().toISOString().slice(0, 10);
@@ -69,7 +70,8 @@ const App = () => {
                 }
             } else {
                 setProfile(null);
-                setView('login');
+                // Keep the landing page if that was the intent, otherwise login
+                setView(prev => prev === 'signup' ? 'signup' : (prev === 'landing' ? 'landing' : 'login'));
             }
         });
 
@@ -228,6 +230,7 @@ const App = () => {
     }
 
     if (!session) {
+        if (view === 'landing') return <LandingPage onGetStarted={() => setView('login')} />;
         if (view === 'signup') return <Signup setView={setView} />;
         if (view === 'forgot-password') return <ForgotPassword setView={setView} />;
         if (view === 'reset-password') return <ResetPassword setView={setView} />;
