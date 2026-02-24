@@ -77,8 +77,14 @@ const App = () => {
                 }
             } else {
                 setProfile(null);
-                // Keep the landing page if that was the intent, otherwise login
-                setView(prev => prev === 'signup' ? 'signup' : (prev === 'landing' ? 'landing' : 'login'));
+                const hash = window.location.hash;
+                if (hash === '#signup') {
+                    setView('signup');
+                } else if (hash === '#landing') {
+                    setView('landing');
+                } else {
+                    setView('login');
+                }
             }
         });
 
@@ -354,13 +360,14 @@ const App = () => {
 
                                     <div className="space-y-6">
                                         <div className="p-6 bg-gray-50 dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700">
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">Copy Registration URL</p>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">Professional Invite Link</p>
                                             <div className="flex items-center gap-2 bg-white dark:bg-gray-950 p-3 rounded-xl border border-gray-100 dark:border-gray-800">
-                                                <code className="flex-1 text-[10px] font-bold text-gray-500 truncate">{window.location.origin}/signup</code>
+                                                <code className="flex-1 text-[10px] font-bold text-gray-500 truncate">{window.location.href.split('#')[0]}#signup</code>
                                                 <button
                                                     onClick={() => {
-                                                        navigator.clipboard.writeText(`${window.location.origin}/signup`);
-                                                        setToastMessage('📋 Link copied to clipboard!');
+                                                        const url = `${window.location.href.split('#')[0]}#signup`;
+                                                        navigator.clipboard.writeText(url);
+                                                        setToastMessage('📋 Signup link copied!');
                                                         setShowToast(true);
                                                     }}
                                                     className="p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
@@ -368,6 +375,17 @@ const App = () => {
                                                     <Copy size={16} />
                                                 </button>
                                             </div>
+                                            <button
+                                                onClick={() => {
+                                                    const msg = `Hi! You've been invited to join the CBPET Daily Tracker. Please register here: ${window.location.href.split('#')[0]}#signup`;
+                                                    navigator.clipboard.writeText(msg);
+                                                    setToastMessage('📩 Invite message copied!');
+                                                    setShowToast(true);
+                                                }}
+                                                className="w-full mt-4 py-2 border-2 border-dashed border-purple-200 dark:border-purple-900/50 text-[10px] font-bold uppercase tracking-widest text-purple-600 dark:text-purple-400 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-all"
+                                            >
+                                                Copy Invite Message
+                                            </button>
                                         </div>
 
                                         <div className="space-y-3">
