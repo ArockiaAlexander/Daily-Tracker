@@ -18,7 +18,12 @@ import {
     Briefcase,
     Loader2,
     Users,
-    Settings
+    Settings,
+    Search,
+    UserPlus,
+    Copy,
+    Check,
+    Trash2
 } from 'lucide-react';
 
 const App = () => {
@@ -49,6 +54,8 @@ const App = () => {
     // ── Admin State ──
     const [allProfiles, setAllProfiles] = useState([]);
     const [isAdminSyncing, setIsAdminSyncing] = useState(false);
+    const [userSearchTerm, setUserSearchTerm] = useState('');
+    const [showInviteModal, setShowInviteModal] = useState(false);
 
     // ── Auth Effects ──
     useEffect(() => {
@@ -155,6 +162,19 @@ const App = () => {
             fetchAllProfiles();
         } catch (error) {
             alert('Error updating user: ' + error.message);
+        }
+    };
+
+    const handleDeleteUser = async (userId) => {
+        if (!window.confirm('Are you sure you want to delete this user profile? This removes their access metadata.')) return;
+        try {
+            const { error } = await supabase.from('profiles').delete().eq('id', userId);
+            if (error) throw error;
+            setToastMessage('🗑️ User profile removed');
+            setShowToast(true);
+            fetchAllProfiles();
+        } catch (error) {
+            alert('Error deleting user: ' + error.message);
         }
     };
 
@@ -298,10 +318,79 @@ const App = () => {
                                 <Users className="text-purple-600" />
                                 System Administration
                             </h2>
-                            <button onClick={fetchAllProfiles} disabled={isAdminSyncing} className={`p-2 bg-purple-50 dark:bg-purple-900/30 text-purple-600 rounded-lg ${isAdminSyncing ? 'animate-spin' : ''}`}>
-                                <RefreshCw size={20} />
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setShowInviteModal(true)}
+                                    className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 text-white font-black rounded-xl shadow-lg shadow-purple-500/20 transition-all text-xs uppercase tracking-widest active:scale-95"
+                                >
+                                    <UserPlus size={16} /> Provision User
+                                </button>
+                                <button onClick={fetchAllProfiles} disabled={isAdminSyncing} className={`p-2 bg-purple-50 dark:bg-purple-900/30 text-purple-600 rounded-lg ${isAdminSyncing ? 'animate-spin' : ''}`}>
+                                    <RefreshCw size={20} />
+                                </button>
+                            </div>
                         </div>
+
+                        {/* Search Bar */}
+                        <div className="relative">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                            <input
+                                type="text"
+                                placeholder="Search users by name, role or ID..."
+                                value={userSearchTerm}
+                                onChange={(e) => setUserSearchTerm(e.target.value)}
+                                className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-gray-800 border-2 border-transparent focus:border-purple-500 rounded-2xl outline-none transition-all text-sm font-bold"
+                            />
+                        </div>
+
+                        {/* User Invite Modal */}
+                        {showInviteModal && (
+                            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                                <div className="bg-white dark:bg-gray-900 rounded-[40px] p-10 max-w-lg w-full shadow-2xl border border-gray-100 dark:border-gray-800 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full -mr-16 -mt-16 blur-3xl" />
+
+                                    <h3 className="text-2xl font-black mb-2 tracking-tight">Provision New User</h3>
+                                    <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 font-medium">Generate a registration link for new team members. They will join as 'Performer' by default.</p>
+
+                                    <div className="space-y-6">
+                                        <div className="p-6 bg-gray-50 dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">Copy Registration URL</p>
+                                            <div className="flex items-center gap-2 bg-white dark:bg-gray-950 p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+                                                <code className="flex-1 text-[10px] font-bold text-gray-500 truncate">{window.location.origin}/signup</code>
+                                                <button
+                                                    onClick={() => {
+                                                        navigator.clipboard.writeText(`${window.location.origin}/signup`);
+                                                        setToastMessage('📋 Link copied to clipboard!');
+                                                        setShowToast(true);
+                                                    }}
+                                                    className="p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                                                >
+                                                    <Copy size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            <div className="flex items-start gap-4 p-4 rounded-2xl bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900">
+                                                <div className="p-2 bg-blue-600 rounded-lg text-white font-black text-xs">1</div>
+                                                <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">New user signs up via this link.</p>
+                                            </div>
+                                            <div className="flex items-start gap-4 p-4 rounded-2xl bg-purple-50/50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-900/30">
+                                                <div className="p-2 bg-purple-600 rounded-lg text-white font-black text-xs">2</div>
+                                                <p className="text-xs font-semibold text-purple-800 dark:text-purple-300">You refresh this tab and assign their Role/Client ID.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        onClick={() => setShowInviteModal(false)}
+                                        className="w-full mt-10 py-4 bg-gray-900 dark:bg-gray-800 text-white font-black rounded-2xl uppercase tracking-widest text-xs transition-all hover:bg-black"
+                                    >
+                                        Close Management
+                                    </button>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="overflow-x-auto rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
                             <table className="w-full text-left border-collapse">
@@ -314,11 +403,16 @@ const App = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y dark:divide-gray-800">
-                                    {allProfiles.map(p => (
+                                    {allProfiles.filter(p =>
+                                        p.performer_name?.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                                        p.role?.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                                        p.id?.toLowerCase().includes(userSearchTerm.toLowerCase())
+                                    ).map(p => (
                                         <AdminUserRow
                                             key={p.id}
                                             user={p}
                                             onUpdate={handleUpdateUserRole}
+                                            onDelete={handleDeleteUser}
                                             isSelf={p.id === session.user.id}
                                             currentUserRole={profile?.role}
                                         />
@@ -450,7 +544,7 @@ const App = () => {
 };
 
 // ── Admin Sub-Component ──
-const AdminUserRow = ({ user, onUpdate, isSelf, currentUserRole }) => {
+const AdminUserRow = ({ user, onUpdate, onDelete, isSelf, currentUserRole }) => {
     const [role, setRole] = useState(user.role);
     const [clientId, setClientId] = useState(user.client_id || '');
     const [changed, setChanged] = useState(false);
@@ -514,11 +608,20 @@ const AdminUserRow = ({ user, onUpdate, isSelf, currentUserRole }) => {
                     )}
                 </select>
             </td>
-            <td className="p-4">
+            <td className="p-4 flex items-center gap-3">
                 {changed ? (
                     <button onClick={handleSave} className="px-4 py-2 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-lg shadow-purple-500/30">Save</button>
                 ) : (
-                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Synchronized</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 opacity-40">Sync</span>
+                )}
+                {!isSelf && currentUserRole === 'admin' && (
+                    <button
+                        onClick={() => onDelete(user.id)}
+                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-all"
+                        title="Delete User Profile"
+                    >
+                        <Trash2 size={14} />
+                    </button>
                 )}
             </td>
         </tr>
