@@ -30,7 +30,13 @@ const Dashboard = ({ entries, userProfile }) => {
     const [selectedPerformer, setSelectedPerformer] = useState('all');
     const [selectedClient, setSelectedClient] = useState('all');
 
-    const role = userProfile?.role || 'performer';
+    // Normalize role for backward compatibility (old + new system)
+    const rawRole = userProfile?.role || 'performer';
+    const isAdmin = ['admin', 'super_admin', 'general_manager'].includes(rawRole);
+    const isManager = ['manager', 'general_manager', 'assistant_manager'].includes(rawRole);
+    const isLead = ['lead', 'team_lead'].includes(rawRole);
+    const isPerformer = rawRole === 'performer';
+    const role = rawRole;
 
     // ── Helper: Filters ──
     const filteredEntries = useMemo(() => {
@@ -78,9 +84,16 @@ const Dashboard = ({ entries, userProfile }) => {
 
     // ── Chart Data Preparations ──
 
-    // Performer-wise or Client-wise grouping
+    // Performer-wise or Client-wise grouping (supports both old and new roles)
     const groupData = {};
-    const groupField = role === 'lead' ? 'performerName' : (role === 'manager' || role === 'admin' ? 'client_id' : 'taskType');
+    let groupField;
+    if (isLead) {
+        groupField = 'performerName';
+    } else if (isAdmin || isManager) {
+        groupField = 'client_id';
+    } else {
+        groupField = 'taskType';
+    }
 
     filteredEntries.forEach(e => {
         const key = e[groupField] || 'Unknown';
@@ -122,14 +135,14 @@ const Dashboard = ({ entries, userProfile }) => {
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
             {/* ── Filters (Admin/Manager/Lead) ── */}
-            {(role !== 'performer') && (
+            {!isPerformer && (
                 <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-800 flex flex-wrap items-center gap-6">
                     <div className="flex items-center gap-3">
                         <Filter size={18} className="text-blue-600" />
                         <span className="text-xs font-black uppercase tracking-widest text-gray-500">Analytical Filters</span>
                     </div>
 
-                    {(role === 'admin' || role === 'manager') && (
+                    {(isAdmin || isManager) && (
                         <div className="flex-1 min-w-[200px]">
                             <select
                                 value={selectedClient}
@@ -190,7 +203,9 @@ const Dashboard = ({ entries, userProfile }) => {
                         </div>
                     </div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">Scale Group</p>
-                    <p className="text-3xl font-black">{role === 'performer' ? 'Personal' : (role === 'lead' ? 'Client Unit' : 'Global')}</p>
+                    <p className="text-3xl font-black">
+                        {isPerformer ? 'Personal' : (isLead ? 'Team' : (isAdmin ? 'Organization' : 'Multi-Team'))}
+                    </p>
                 </div>
 
                 <div className="bg-white dark:bg-gray-900 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-800">
@@ -208,7 +223,7 @@ const Dashboard = ({ entries, userProfile }) => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div className="bg-white dark:bg-gray-900 p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
                     <h3 className="text-xs font-black uppercase tracking-[0.2em] text-gray-400 mb-8 flex items-center gap-2">
-                        {role === 'performer' ? 'Activity Distribution' : (role === 'lead' ? 'Performer Comparison' : 'Client Analysis')}
+                        {isPerformer ? 'Activity Distribution' : (isLead ? 'Team Member Comparison' : 'Client-wise Analysis')}
                     </h3>
                     <div className="h-[300px]">
                         <Bar

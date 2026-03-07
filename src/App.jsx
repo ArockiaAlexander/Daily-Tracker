@@ -7,6 +7,10 @@ import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import LandingPage from './components/LandingPage';
+import WorkflowManager from './components/WorkflowManager';
+import UserManagement from './components/UserManagement';
+import ChangePassword from './components/ChangePassword';
+import AdminResetUserPassword from './components/AdminResetUserPassword';
 import { supabase } from './lib/supabase';
 import {
     LayoutDashboard,
@@ -23,7 +27,9 @@ import {
     UserPlus,
     Copy,
     Check,
-    Trash2
+    Trash2,
+    Lock,
+    KeyRound
 } from 'lucide-react';
 
 const App = () => {
@@ -56,6 +62,15 @@ const App = () => {
     const [isAdminSyncing, setIsAdminSyncing] = useState(false);
     const [userSearchTerm, setUserSearchTerm] = useState('');
     const [showInviteModal, setShowInviteModal] = useState(false);
+    const [showAddUserModal, setShowAddUserModal] = useState(false);
+    const [newUserEmail, setNewUserEmail] = useState('');
+    const [newUserName, setNewUserName] = useState('');
+    const [newUserRole, setNewUserRole] = useState('performer');
+    const [adminSubTab, setAdminSubTab] = useState('users'); // 'users' or 'workflows'
+    
+    // ── Password Management State ──
+    const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+    const [showAdminResetPasswordModal, setShowAdminResetPasswordModal] = useState(false);
 
     // ── Auth Effects ──
     useEffect(() => {
@@ -116,7 +131,7 @@ const App = () => {
     useEffect(() => {
         if (session) {
             fetchFromSupabase();
-            if (profile?.role === 'admin' || profile?.role === 'manager') fetchAllProfiles();
+            if (profile?.role === 'super_admin' || profile?.role === 'general_manager') fetchAllProfiles();
         }
     }, [session, profile]);
 
@@ -128,7 +143,7 @@ const App = () => {
             let query = supabase.from('status_entries').select('*').order('date', { ascending: false });
             if (profile?.role === 'performer') {
                 query = query.eq('user_id', session.user.id);
-            } else if (profile?.role === 'lead') {
+            } else if (profile?.role === 'team_lead') {
                 query = query.eq('client_id', profile.client_id);
             }
             const { data, error } = await query;
@@ -142,7 +157,7 @@ const App = () => {
     };
 
     const fetchAllProfiles = async () => {
-        if (profile?.role !== 'admin' && profile?.role !== 'manager') return;
+        if (profile?.role !== 'super_admin' && profile?.role !== 'general_manager') return;
         setIsAdminSyncing(true);
         try {
             const { data, error } = await supabase.from('profiles').select('*').order('performer_name', { ascending: true });
@@ -156,6 +171,12 @@ const App = () => {
     };
 
     const handleUpdateUserRole = async (userId, newRole, clientId) => {
+        // RBAC: Only super_admin and general_manager can update users
+        if (profile?.role !== 'super_admin' && profile?.role !== 'general_manager') {
+            alert('❌ Access Denied: Only super_admin and general_manager can update users');
+            return;
+        }
+
         try {
             const { error } = await supabase
                 .from('profiles')
@@ -172,6 +193,12 @@ const App = () => {
     };
 
     const handleDeleteUser = async (userId) => {
+        // RBAC: Only super_admin and general_manager can delete users
+        if (profile?.role !== 'super_admin' && profile?.role !== 'general_manager') {
+            alert('❌ Access Denied: Only super_admin and general_manager can delete users');
+            return;
+        }
+
         if (!window.confirm('Are you sure you want to delete this user profile? This removes their access metadata.')) return;
         try {
             const { error } = await supabase.from('profiles').delete().eq('id', userId);
@@ -181,6 +208,66 @@ const App = () => {
             fetchAllProfiles();
         } catch (error) {
             alert('Error deleting user: ' + error.message);
+        }
+    };
+
+    const handleAddNewUser = async (e) => {
+        e.preventDefault();
+
+        // RBAC: Only super_admin and general_manager can add users
+        if (profile?.role !== 'super_admin' && profile?.role !== 'general_manager') {
+            alert('❌ Access Denied: Only super_admin and general_manager can add users');
+            return;
+        }
+
+        // Validate inputs
+        if (!newUserEmail || !newUserName) {
+            alert('❌ Email and Name are required');
+            return;
+        }
+
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(newUserEmail)) {
+            alert('❌ Invalid email format. Please use a valid email address (e.g., user@gmail.com, user@company.com)');
+            return;
+        }
+
+        try {
+            // Create user via sign up (they'll receive confirmation email)
+            const { data: authData, error: authError } = await supabase.auth.signUp({
+                email: newUserEmail,
+                password: Math.random().toString(36).slice(-12), // Temporary password
+            });
+
+            if (authError) throw authError;
+
+            // Wait a moment for auth user to be created
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Create profile entry with assigned role
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .insert([{
+                    id: authData.user.id,
+                    performer_name: newUserName,
+                    role: newUserRole,
+                    client_id: 'DEFAULT_CLIENT'
+                }]);
+
+            if (profileError && !profileError.message.includes('duplicate')) {
+                throw profileError;
+            }
+
+            setToastMessage(`✅ User "${newUserName}" created with ${newUserRole} role. Confirmation email sent.`);
+            setShowToast(true);
+            setShowAddUserModal(false);
+            setNewUserEmail('');
+            setNewUserName('');
+            setNewUserRole('performer');
+            fetchAllProfiles();
+        } catch (error) {
+            alert('Error adding user: ' + error.message);
         }
     };
 
@@ -266,298 +353,458 @@ const App = () => {
     const displayedEntries = filterDate ? statusEntries.filter(e => e.date === filterDate) : statusEntries;
 
     return (
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-gray-100 p-4 transition-colors duration-300 font-sans">
-            <Toast show={showToast} message={toastMessage} onDone={() => setShowToast(false)} />
+        <>
+            <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-gray-100 p-4 transition-colors duration-300 font-sans">
+                <Toast show={showToast} message={toastMessage} onDone={() => setShowToast(false)} />
 
-            <nav className="container mx-auto max-w-7xl mb-6 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
-                        <ShieldCheck size={24} />
-                    </div>
-                    <div>
-                        <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">CBPET Tracker</h1>
-                        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                            <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700">{profile?.role || 'Performer'}</span>
-                            {profile?.client_id && <span>• {profile.client_id}</span>}
+                <nav className="container mx-auto max-w-7xl mb-6 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
+                            <ShieldCheck size={24} />
                         </div>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                    <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 rounded-lg text-xs font-bold font-mono">
-                        <User size={14} className="text-gray-400" />
-                        <span>{session.user.email}</span>
-                    </div>
-                    <button onClick={() => setDarkMode(!darkMode)} className="p-2.5 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                        {darkMode ? '☀️' : '🌙'}
-                    </button>
-                    <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 rounded-xl font-bold transition-all text-sm uppercase tracking-widest">
-                        <LogOut size={18} />
-                        Logout
-                    </button>
-                </div>
-            </nav>
-
-            <div className="container mx-auto max-w-7xl mb-8 flex justify-center">
-                <div className="bg-white dark:bg-gray-900 p-1.5 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 flex gap-2 overflow-x-auto">
-                    <button onClick={() => setActiveTab('form')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'form' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-                        <ClipboardList size={18} />Entry Form
-                    </button>
-                    <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-                        <LayoutDashboard size={18} />Analytics
-                    </button>
-                    {(profile?.role === 'admin' || profile?.role === 'manager') && (
-                        <button onClick={() => setActiveTab('admin')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'admin' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-                            <Users size={18} />User Management
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            <div className="container mx-auto max-w-7xl bg-white dark:bg-gray-900 rounded-3xl p-6 md:p-10 shadow-xl border border-gray-100 dark:border-gray-800 min-h-[600px]">
-                {activeTab === 'dashboard' ? (
-                    <Dashboard entries={statusEntries} userProfile={profile} />
-                ) : activeTab === 'admin' ? (
-                    <div className="space-y-8">
-                        <div className="flex justify-between items-center">
-                            <h2 className="text-2xl font-black flex items-center gap-3">
-                                <Users className="text-purple-600" />
-                                System Administration
-                            </h2>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => setShowInviteModal(true)}
-                                    className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 text-white font-black rounded-xl shadow-lg shadow-purple-500/20 transition-all text-xs uppercase tracking-widest active:scale-95"
-                                >
-                                    <UserPlus size={16} /> Provision User
-                                </button>
-                                <button onClick={fetchAllProfiles} disabled={isAdminSyncing} className={`p-2 bg-purple-50 dark:bg-purple-900/30 text-purple-600 rounded-lg ${isAdminSyncing ? 'animate-spin' : ''}`}>
-                                    <RefreshCw size={20} />
-                                </button>
+                        <div>
+                            <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">CBPET Tracker</h1>
+                            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                                <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700">{profile?.role || 'Performer'}</span>
+                                {profile?.client_id && <span>• {profile.client_id}</span>}
                             </div>
                         </div>
+                    </div>
 
-                        {/* Search Bar */}
-                        <div className="relative">
-                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                            <input
-                                type="text"
-                                placeholder="Search users by name, role or ID..."
-                                value={userSearchTerm}
-                                onChange={(e) => setUserSearchTerm(e.target.value)}
-                                className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-gray-800 border-2 border-transparent focus:border-purple-500 rounded-2xl outline-none transition-all text-sm font-bold"
-                            />
+                    <div className="flex items-center gap-4">
+                        <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 rounded-lg text-xs font-bold font-mono">
+                            <User size={14} className="text-gray-400" />
+                            <span>{session.user.email}</span>
                         </div>
+                        <button 
+                            onClick={() => setShowChangePasswordModal(true)} 
+                            className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition-colors"
+                            title="Change Your Password"
+                        >
+                            <Lock size={18} />
+                        </button>
+                        {(profile?.role === 'super_admin' || profile?.role === 'general_manager') && (
+                            <button 
+                                onClick={() => setShowAdminResetPasswordModal(true)} 
+                                className="p-2.5 rounded-xl bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 transition-colors"
+                                title="Reset User Password"
+                            >
+                                <KeyRound size={18} />
+                            </button>
+                        )}
+                        <button onClick={() => setDarkMode(!darkMode)} className="p-2.5 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                            {darkMode ? '☀️' : '🌙'}
+                        </button>
+                        <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 rounded-xl font-bold transition-all text-sm uppercase tracking-widest">
+                            <LogOut size={18} />
+                            Logout
+                        </button>
+                    </div>
+                </nav>
 
-                        {/* User Invite Modal */}
-                        {showInviteModal && (
-                            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                                <div className="bg-white dark:bg-gray-900 rounded-[40px] p-10 max-w-lg w-full shadow-2xl border border-gray-100 dark:border-gray-800 relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full -mr-16 -mt-16 blur-3xl" />
+                <div className="container mx-auto max-w-7xl mb-8 flex justify-center">
+                    <div className="bg-white dark:bg-gray-900 p-1.5 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 flex gap-2 overflow-x-auto">
+                        <button onClick={() => setActiveTab('form')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'form' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                            <ClipboardList size={18} />Entry Form
+                        </button>
+                        <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                            <LayoutDashboard size={18} />Analytics
+                        </button>
+                        {(profile?.role === 'super_admin' || profile?.role === 'general_manager') && (
+                            <button onClick={() => setActiveTab('super_admin')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'super_admin' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                                <Users size={18} />User Management
+                            </button>
+                        )}
+                    </div>
+                </div>
 
-                                    <h3 className="text-2xl font-black mb-2 tracking-tight">Provision New User</h3>
-                                    <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 font-medium">Generate a registration link for new team members. They will join as 'Performer' by default.</p>
-
-                                    <div className="space-y-6">
-                                        <div className="p-6 bg-gray-50 dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700">
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">Professional Invite Link</p>
-                                            <div className="flex items-center gap-2 bg-white dark:bg-gray-950 p-3 rounded-xl border border-gray-100 dark:border-gray-800">
-                                                <code className="flex-1 text-[10px] font-bold text-gray-500 truncate">{window.location.href.split('#')[0]}#signup</code>
-                                                <button
-                                                    onClick={() => {
-                                                        const url = `${window.location.href.split('#')[0]}#signup`;
-                                                        navigator.clipboard.writeText(url);
-                                                        setToastMessage('📋 Signup link copied!');
-                                                        setShowToast(true);
-                                                    }}
-                                                    className="p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                                                >
-                                                    <Copy size={16} />
-                                                </button>
-                                            </div>
+                <div className="container mx-auto max-w-7xl bg-white dark:bg-gray-900 rounded-3xl p-6 md:p-10 shadow-xl border border-gray-100 dark:border-gray-800 min-h-[600px]">
+                    {activeTab === 'dashboard' ? (
+                        <Dashboard entries={statusEntries} userProfile={profile} />
+                    ) : activeTab === 'super_admin' ? (
+                        <div className="space-y-8">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-2xl font-black flex items-center gap-3">
+                                    <Users className="text-purple-600" />
+                                    System Administration
+                                </h2>
+                                <div className="flex gap-2">
+                                    {adminSubTab === 'users' && (
+                                        <>
                                             <button
-                                                onClick={() => {
-                                                    const msg = `Hi! You've been invited to join the CBPET Daily Tracker. Please register here: ${window.location.href.split('#')[0]}#signup`;
-                                                    navigator.clipboard.writeText(msg);
-                                                    setToastMessage('📩 Invite message copied!');
-                                                    setShowToast(true);
-                                                }}
-                                                className="w-full mt-4 py-2 border-2 border-dashed border-purple-200 dark:border-purple-900/50 text-[10px] font-bold uppercase tracking-widest text-purple-600 dark:text-purple-400 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-all"
+                                                onClick={() => setShowAddUserModal(true)}
+                                                className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white font-black rounded-xl shadow-lg shadow-green-500/20 transition-all text-xs uppercase tracking-widest active:scale-95"
                                             >
-                                                Copy Invite Message
+                                                <UserPlus size={16} /> Add New User
                                             </button>
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            <div className="flex items-start gap-4 p-4 rounded-2xl bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900">
-                                                <div className="p-2 bg-blue-600 rounded-lg text-white font-black text-xs">1</div>
-                                                <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">New user signs up via this link.</p>
-                                            </div>
-                                            <div className="flex items-start gap-4 p-4 rounded-2xl bg-purple-50/50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-900/30">
-                                                <div className="p-2 bg-purple-600 rounded-lg text-white font-black text-xs">2</div>
-                                                <p className="text-xs font-semibold text-purple-800 dark:text-purple-300">You refresh this tab and assign their Role/Client ID.</p>
-                                            </div>
-                                        </div>
-                                    </div>
-
+                                            <button
+                                                onClick={() => setShowInviteModal(true)}
+                                                className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 text-white font-black rounded-xl shadow-lg shadow-purple-500/20 transition-all text-xs uppercase tracking-widest active:scale-95"
+                                            >
+                                                <UserPlus size={16} /> Provision User
+                                            </button>
+                                        </>
+                                    )}
                                     <button
-                                        onClick={() => setShowInviteModal(false)}
-                                        className="w-full mt-10 py-4 bg-gray-900 dark:bg-gray-800 text-white font-black rounded-2xl uppercase tracking-widest text-xs transition-all hover:bg-black"
+                                        onClick={adminSubTab === 'users' ? fetchAllProfiles : null}
+                                        disabled={adminSubTab === 'users' ? isAdminSyncing : false}
+                                        className={`p-2 bg-purple-50 dark:bg-purple-900/30 text-purple-600 rounded-lg ${adminSubTab === 'users' && isAdminSyncing ? 'animate-spin' : ''}`}
                                     >
-                                        Close Management
+                                        <RefreshCw size={20} />
                                     </button>
                                 </div>
                             </div>
-                        )}
 
-                        <div className="overflow-x-auto rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
-                            <table className="w-full text-left border-collapse">
-                                <thead className="bg-gray-50 dark:bg-gray-800/50">
-                                    <tr>
-                                        <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">User Name</th>
-                                        <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">Assignment</th>
-                                        <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">Role</th>
-                                        <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y dark:divide-gray-800">
-                                    {allProfiles.filter(p =>
-                                        p.performer_name?.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
-                                        p.role?.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
-                                        p.id?.toLowerCase().includes(userSearchTerm.toLowerCase())
-                                    ).map(p => (
-                                        <AdminUserRow
-                                            key={p.id}
-                                            user={p}
-                                            onUpdate={handleUpdateUserRole}
-                                            onDelete={handleDeleteUser}
-                                            isSelf={p.id === session.user.id}
-                                            currentUserRole={profile?.role}
-                                        />
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="flex flex-col lg:flex-row gap-12">
-                        <div className="flex-1 max-w-xl">
-                            <div className="flex items-center gap-3 mb-8">
-                                <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-blue-600"><Briefcase size={24} /></div>
-                                <h2 className="text-2xl font-bold">Log Activity</h2>
-                            </div>
-
-                            <form onSubmit={handleSubmit} className="space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Performer</label>
-                                        {(profile?.role === 'admin' || profile?.role === 'manager') ? (
-                                            <select
-                                                value={performerName}
-                                                onChange={e => setPerformerName(e.target.value)}
-                                                className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E')] bg-[length:20px_20px] bg-[right_1rem_center] bg-no-repeat"
-                                            >
-                                                <option value={profile.performer_name}>{profile.performer_name} (You)</option>
-                                                {allProfiles.filter(p => p.id !== session.user.id).map(p => (
-                                                    <option key={p.id} value={p.performer_name}>{p.performer_name}</option>
-                                                ))}
-                                            </select>
-                                        ) : (
-                                            <input type="text" value={performerName} readOnly className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-500 cursor-not-allowed font-medium" />
-                                        )}
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Date</label>
-                                        <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" required />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Project/Title Name</label>
-                                    <input type="text" value={titleName} onChange={e => setTitleName(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" placeholder="e.g., Springer Nature Vol 42" required />
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Task Type</label>
-                                        <select value={taskType} onChange={e => setTaskType(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E')] bg-[length:20px_20px] bg-[right_1rem_center] bg-no-repeat font-medium" required>
-                                            <option value="">Select Task</option>
-                                            {Object.keys(standardTargets).map(k => <option key={k} value={k}>{k}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Work Done</label>
-                                        <input type="number" value={completedPages} onChange={e => setCompletedPages(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" placeholder="150" required />
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Estimated Hours</label>
-                                        <input type="number" value={estimatedTime} onChange={e => setEstimatedTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" placeholder="8.0" required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Taken Hours</label>
-                                        <input type="number" value={takenTime} onChange={e => setTakenTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" placeholder="7.5" required />
-                                    </div>
-                                </div>
-
-                                <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl shadow-lg shadow-blue-500/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
-                                    <ShieldCheck size={20} />Authorize and Log
+                            {/* Admin SubTabs */}
+                            <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+                                <button
+                                    onClick={() => setAdminSubTab('users')}
+                                    className={`px-6 py-3 font-bold text-sm transition-all border-b-2 ${adminSubTab === 'users'
+                                        ? 'border-purple-600 text-purple-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                                        }`}
+                                >
+                                    👥 User Management
                                 </button>
-                            </form>
-                        </div>
-
-                        <div className="flex-1 space-y-8">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="p-6 rounded-2xl bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900">
-                                    <p className="text-[10px] font-black text-green-600 uppercase tracking-widest mb-1">Target Achievement</p>
-                                    <span className={`text-4xl font-extrabold ${Number(targetAchievedPercentage) >= 100 ? 'text-green-700 dark:text-green-400' : 'text-amber-600'}`}>{targetAchievedPercentage}%</span>
-                                </div>
-                                <div className="p-6 rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900">
-                                    <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Time Efficiency</p>
-                                    <span className="text-4xl font-extrabold text-indigo-700 dark:text-indigo-400">{timeAchievedPercentage}%</span>
-                                </div>
+                                <button
+                                    onClick={() => setAdminSubTab('workflows')}
+                                    className={`px-6 py-3 font-bold text-sm transition-all border-b-2 ${adminSubTab === 'workflows'
+                                        ? 'border-purple-600 text-purple-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                                        }`}
+                                >
+                                    📋 Workflow Management
+                                </button>
                             </div>
 
-                            <div className="bg-gray-50 dark:bg-gray-800/50 rounded-3xl p-6 border border-gray-100 dark:border-gray-800">
-                                <div className="flex justify-between items-center mb-6">
-                                    <h3 className="text-sm font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">History Log <span className="text-[10px] bg-white dark:bg-gray-700 px-2 py-0.5 rounded-full border border-gray-100 dark:border-gray-600">{statusEntries.length}</span></h3>
-                                    <div className="flex items-center gap-2">
-                                        <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="p-2 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-900 rounded-lg outline-none font-bold" />
-                                        <button onClick={fetchFromSupabase} disabled={isSyncing} className={`p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg ${isSyncing ? 'animate-spin' : ''}`}>
-                                            <RefreshCw size={14} />
+                            {/* USER MANAGEMENT SECTION */}
+                            {adminSubTab === 'users' && (profile?.role === 'super_admin' || profile?.role === 'general_manager') ? (
+                                <UserManagement />
+                            ) : adminSubTab === 'users' ? (
+                                <>
+                                    {/* Search Bar */}
+                                    <div className="relative">
+                                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                                        <input
+                                            type="text"
+                                            placeholder="Search users by name, role or ID..."
+                                            value={userSearchTerm}
+                                            onChange={(e) => setUserSearchTerm(e.target.value)}
+                                            className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-gray-800 border-2 border-transparent focus:border-purple-500 rounded-2xl outline-none transition-all text-sm font-bold"
+                                        />
+                                    </div>
+
+                                    <div className="overflow-x-auto rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                                        <table className="w-full text-left border-collapse">
+                                            <thead className="bg-gray-50 dark:bg-gray-800/50">
+                                                <tr>
+                                                    <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">User Name</th>
+                                                    <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">Assignment</th>
+                                                    <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">Role</th>
+                                                    <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y dark:divide-gray-800">
+                                                {allProfiles.filter(p =>
+                                                    p.performer_name?.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                                                    p.role?.toLowerCase().includes(userSearchTerm.toLowerCase()) ||
+                                                    p.id?.toLowerCase().includes(userSearchTerm.toLowerCase())
+                                                ).map(p => (
+                                                    <AdminUserRow
+                                                        key={p.id}
+                                                        user={p}
+                                                        onUpdate={handleUpdateUserRole}
+                                                        onDelete={handleDeleteUser}
+                                                        isSelf={p.id === session.user.id}
+                                                        currentUserRole={profile?.role}
+                                                    />
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </>
+                            ) : adminSubTab === 'workflows' ? (
+                                <WorkflowManager
+                                    supabase={supabase}
+                                    session={session}
+                                    allProfiles={allProfiles}
+                                    onRefresh={fetchAllProfiles}
+                                />
+                            ) : null}
+
+                            {/* MODALS - Outside main conditional so always available */}
+                            {/* Add New User Modal */}
+                            {showAddUserModal && adminSubTab === 'users' && (
+                                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                                    <div className="bg-white dark:bg-gray-900 rounded-[40px] p-10 max-w-lg w-full shadow-2xl border border-gray-100 dark:border-gray-800 relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/10 rounded-full -mr-16 -mt-16 blur-3xl" />
+
+                                        <h3 className="text-2xl font-black mb-2 tracking-tight">Add New User</h3>
+                                        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 font-medium">Create a new team member with assigned role and permissions.</p>
+
+                                        <form onSubmit={handleAddNewUser} className="space-y-6">
+                                            <div>
+                                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Email Address</label>
+                                                <input
+                                                    type="email"
+                                                    value={newUserEmail}
+                                                    onChange={(e) => setNewUserEmail(e.target.value)}
+                                                    placeholder="user@example.com"
+                                                    className="w-full p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl outline-none focus:border-green-500 font-bold text-sm"
+                                                    required
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Full Name</label>
+                                                <input
+                                                    type="text"
+                                                    value={newUserName}
+                                                    onChange={(e) => setNewUserName(e.target.value)}
+                                                    placeholder="John Doe"
+                                                    className="w-full p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl outline-none focus:border-green-500 font-bold text-sm"
+                                                    required
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Assign Role</label>
+                                                <select
+                                                    value={newUserRole}
+                                                    onChange={(e) => setNewUserRole(e.target.value)}
+                                                    className="w-full p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl outline-none focus:border-green-500 font-bold text-sm appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E')] bg-[length:20px_20px] bg-[right_1rem_center] bg-no-repeat pr-10"
+                                                >
+                                                    <option value="performer">👤 Performer</option>
+                                                    <option value="team_lead">👨‍💼 Team Lead</option>
+                                                    <option value="assistant_manager">📊 Assistant Manager</option>
+                                                    <option value="general_manager">🏢 General Manager</option>
+                                                    <option value="super_admin">🔐 Super Admin</option>
+                                                </select>
+                                            </div>
+
+                                            <div className="p-4 rounded-2xl bg-green-50/50 dark:bg-green-900/10 border border-green-100 dark:border-green-900">
+                                                <p className="text-xs font-semibold text-green-800 dark:text-green-300">✅ User will be created with the selected role and full access permissions.</p>
+                                            </div>
+
+                                            <div className="flex gap-3">
+                                                <button
+                                                    type="submit"
+                                                    className="flex-1 py-3 bg-green-600 text-white font-black rounded-xl uppercase tracking-widest text-xs shadow-lg shadow-green-500/30 hover:bg-green-700 transition-all active:scale-95"
+                                                >
+                                                    Create User
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowAddUserModal(false)}
+                                                    className="flex-1 py-3 bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-black rounded-xl uppercase tracking-widest text-xs hover:bg-gray-300 dark:hover:bg-gray-700 transition-all"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Provision User Modal */}
+                            {showInviteModal && adminSubTab === 'users' && (
+                                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                                    <div className="bg-white dark:bg-gray-900 rounded-[40px] p-10 max-w-lg w-full shadow-2xl border border-gray-100 dark:border-gray-800 relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full -mr-16 -mt-16 blur-3xl" />
+
+                                        <h3 className="text-2xl font-black mb-2 tracking-tight">Provision New User</h3>
+                                        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 font-medium">Generate a registration link for new team members. They will join as 'Performer' by default.</p>
+
+                                        <div className="space-y-6">
+                                            <div className="p-6 bg-gray-50 dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">Professional Invite Link</p>
+                                                <div className="flex items-center gap-2 bg-white dark:bg-gray-950 p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+                                                    <code className="flex-1 text-[10px] font-bold text-gray-500 truncate">{window.location.href.split('#')[0]}#signup</code>
+                                                    <button
+                                                        onClick={() => {
+                                                            const url = `${window.location.href.split('#')[0]}#signup`;
+                                                            navigator.clipboard.writeText(url);
+                                                            setToastMessage('📋 Signup link copied!');
+                                                            setShowToast(true);
+                                                        }}
+                                                        className="p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                                                    >
+                                                        <Copy size={16} />
+                                                    </button>
+                                                </div>
+                                                <button
+                                                    onClick={() => {
+                                                        const msg = `Hi! You've been invited to join the CBPET Daily Tracker. Please register here: ${window.location.href.split('#')[0]}#signup`;
+                                                        navigator.clipboard.writeText(msg);
+                                                        setToastMessage('📩 Invite message copied!');
+                                                        setShowToast(true);
+                                                    }}
+                                                    className="w-full mt-4 py-2 border-2 border-dashed border-purple-200 dark:border-purple-900/50 text-[10px] font-bold uppercase tracking-widest text-purple-600 dark:text-purple-400 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-all"
+                                                >
+                                                    Copy Invite Message
+                                                </button>
+                                            </div>
+
+                                            <div className="space-y-3">
+                                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900">
+                                                    <div className="p-2 bg-blue-600 rounded-lg text-white font-black text-xs">1</div>
+                                                    <p className="text-xs font-semibold text-blue-800 dark:text-blue-300">New user signs up via this link.</p>
+                                                </div>
+                                                <div className="flex items-start gap-4 p-4 rounded-2xl bg-purple-50/50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-900/30">
+                                                    <div className="p-2 bg-purple-600 rounded-lg text-white font-black text-xs">2</div>
+                                                    <p className="text-xs font-semibold text-purple-800 dark:text-purple-300">You refresh this tab and assign their Role/Client ID.</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => setShowInviteModal(false)}
+                                            className="w-full mt-10 py-4 bg-gray-900 dark:bg-gray-800 text-white font-black rounded-2xl uppercase tracking-widest text-xs transition-all hover:bg-black"
+                                        >
+                                            Close Management
                                         </button>
                                     </div>
                                 </div>
+                            )}
+                        </div>
 
-                                <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                                    {displayedEntries.length > 0 ? displayedEntries.map(e => (
-                                        <div key={e.id} className="p-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between hover:border-blue-200 transition-colors group">
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <span className="text-[10px] font-black text-gray-400">{e.date}</span>
-                                                    <span className="text-[9px] font-black uppercase py-0.5 px-1.5 bg-blue-50 dark:bg-blue-900/40 text-blue-600 rounded border border-blue-100 dark:border-blue-900">{e.taskType}</span>
-                                                </div>
-                                                <p className="font-bold text-sm truncate max-w-[200px] group-hover:text-blue-600 transition-colors" title={e.titleName}>{e.titleName}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className={`font-black text-sm ${e.targetAchieved >= 100 ? 'text-green-600' : 'text-amber-500'}`}>{e.targetAchieved}%</p>
-                                                <button onClick={() => handleDeleteEntry(e.id)} className="text-[10px] font-black uppercase text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">Delete</button>
-                                            </div>
+                    ) : (
+                        <div className="flex flex-col lg:flex-row gap-12">
+                            <div className="flex-1 max-w-xl">
+                                <div className="flex items-center gap-3 mb-8">
+                                    <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-blue-600"><Briefcase size={24} /></div>
+                                    <h2 className="text-2xl font-bold">Log Activity</h2>
+                                </div>
+
+                                <form onSubmit={handleSubmit} className="space-y-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Performer</label>
+                                            {(profile?.role === 'super_admin' || profile?.role === 'general_manager') ? (
+                                                <select
+                                                    value={performerName}
+                                                    onChange={e => setPerformerName(e.target.value)}
+                                                    className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%2２%２０stroke-linecap%3D%２round%２０stroke-linejoin%3D%２round%２２%３E%３Cpolyline%２０points%3D%２6%２9 %２1２ %２1８ %２9 %３C/polyline%３E%３C/svg%３E')] bg-[length: twentypx_ twentypx] bg-[right_1rem_center] bg-no-repeat"
+                                                >
+                                                    <option value={profile.performer_name}>{profile.performer_name} (You)</option>
+                                                    {allProfiles.filter(p => p.id !== session.user.id).map(p => (
+                                                        <option key={p.id} value={p.performer_name}>{p.performer_name}</option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <input type="text" value={performerName} readOnly className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-500 cursor-not-allowed font-medium" />
+                                            )}
                                         </div>
-                                    )) : <div className="text-center py-20 bg-gray-50/50 dark:bg-gray-800/30 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-800"><p className="text-xs font-black uppercase text-gray-400">System Ready • No Logs Found</p></div>}
+                                        <div>
+                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Date</label>
+                                            <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" required />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Project/Title Name</label>
+                                        <input type="text" value={titleName} onChange={e => setTitleName(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" placeholder="e.g., Springer Nature Vol 42" required />
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Task Type</label>
+                                            <select value={taskType} onChange={e => setTaskType(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E')] bg-[length:20px_20px] bg-[right_1rem_center] bg-no-repeat font-medium" required>
+                                                <option value="">Select Task</option>
+                                                {Object.keys(standardTargets).map(k => <option key={k} value={k}>{k}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Work Done</label>
+                                            <input type="number" value={completedPages} onChange={e => setCompletedPages(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" placeholder="150" required />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Estimated Hours</label>
+                                            <input type="number" value={estimatedTime} onChange={e => setEstimatedTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" placeholder="8.0" required />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Taken Hours</label>
+                                            <input type="number" value={takenTime} onChange={e => setTakenTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" placeholder="7.5" required />
+                                        </div>
+                                    </div>
+
+                                    <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl shadow-lg shadow-blue-500/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
+                                        <ShieldCheck size={20} />Authorize and Log
+                                    </button>
+                                </form>
+                            </div>
+
+                            <div className="flex-1 space-y-8">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="p-6 rounded-2xl bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900">
+                                        <p className="text-[10px] font-black text-green-600 uppercase tracking-widest mb-1">Target Achievement</p>
+                                        <span className={`text-4xl font-extrabold ${Number(targetAchievedPercentage) >= 100 ? 'text-green-700 dark:text-green-400' : 'text-amber-600'}`}>{targetAchievedPercentage}%</span>
+                                    </div>
+                                    <div className="p-6 rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900">
+                                        <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Time Efficiency</p>
+                                        <span className="text-4xl font-extrabold text-indigo-700 dark:text-indigo-400">{timeAchievedPercentage}%</span>
+                                    </div>
+                                </div>
+
+                                <div className="bg-gray-50 dark:bg-gray-800/50 rounded-3xl p-6 border border-gray-100 dark:border-gray-800">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h3 className="text-sm font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">History Log <span className="text-[10px] bg-white dark:bg-gray-700 px-2 py-0.5 rounded-full border border-gray-100 dark:border-gray-600">{statusEntries.length}</span></h3>
+                                        <div className="flex items-center gap-2">
+                                            <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="p-2 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-900 rounded-lg outline-none font-bold" />
+                                            <button onClick={fetchFromSupabase} disabled={isSyncing} className={`p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg ${isSyncing ? 'animate-spin' : ''}`}>
+                                                <RefreshCw size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                        {displayedEntries.length > 0 ? displayedEntries.map(e => (
+                                            <div key={e.id} className="p-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between hover:border-blue-200 transition-colors group">
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className="text-[10px] font-black text-gray-400">{e.date}</span>
+                                                        <span className="text-[9px] font-black uppercase py-0.5 px-1.5 bg-blue-50 dark:bg-blue-900/40 text-blue-600 rounded border border-blue-100 dark:border-blue-900">{e.taskType}</span>
+                                                    </div>
+                                                    <p className="font-bold text-sm truncate max-w-[200px] group-hover:text-blue-600 transition-colors" title={e.titleName}>{e.titleName}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className={`font-black text-sm ${e.targetAchieved >= 100 ? 'text-green-600' : 'text-amber-500'}`}>{e.targetAchieved}%</p>
+                                                    <button onClick={() => handleDeleteEntry(e.id)} className="text-[10px] font-black uppercase text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">Delete</button>
+                                                </div>
+                                            </div>
+                                        )) : <div className="text-center py-20 bg-gray-50/50 dark:bg-gray-800/30 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-800"><p className="text-xs font-black uppercase text-gray-400">System Ready • No Logs Found</p></div>}
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
+
+                <footer className="container mx-auto max-w-7xl mt-8 text-center text-xs font-bold text-gray-400 dark:text-gray-600 uppercase tracking-[0.3em]">
+                    &copy; {new Date().getFullYear()} CBPET Engine Alpha • Real-time Monitoring Active
+                </footer>
             </div>
 
-            <footer className="container mx-auto max-w-7xl mt-8 text-center text-xs font-bold text-gray-400 dark:text-gray-600 uppercase tracking-[0.3em]">
-                &copy; {new Date().getFullYear()} CBPET Engine Alpha • Real-time Monitoring Active
-            </footer>
-        </div>
+            {/* Password Management Modals */}
+            {showChangePasswordModal && (
+                <ChangePassword 
+                    profile={profile}
+                    onClose={() => setShowChangePasswordModal(false)}
+                />
+            )}
+
+            {showAdminResetPasswordModal && (
+                <AdminResetUserPassword
+                    profile={profile}
+                    allProfiles={allProfiles}
+                    onClose={() => setShowAdminResetPasswordModal(false)}
+                    onPasswordReset={() => fetchAllProfiles()}
+                />
+            )}
+        </>
     );
 };
 
@@ -567,26 +814,38 @@ const AdminUserRow = ({ user, onUpdate, onDelete, isSelf, currentUserRole }) => 
     const [clientId, setClientId] = useState(user.client_id || '');
     const [changed, setChanged] = useState(false);
 
+    // Debug: Log access levels
+    const canEdit = currentUserRole === 'super_admin' || currentUserRole === 'general_manager';
+    const canDelete = currentUserRole === 'super_admin' || currentUserRole === 'general_manager';
+
+    if (currentUserRole === 'super_admin' || currentUserRole === 'general_manager') {
+        console.log(`✅ ${currentUserRole.toUpperCase()}: Full CRUD access`, { userId: user.id, userName: user.performer_name });
+    } else {
+        console.log(`⛔ ${currentUserRole}: Read-only access`, { userId: user.id, userName: user.performer_name });
+    }
+
     const handleSave = () => {
+        if (!canEdit) {
+            console.error('⛔ Unauthorized: Cannot edit user');
+            return;
+        }
         onUpdate(user.id, role, clientId);
         setChanged(false);
     };
 
     // Define which roles the current user can assign
     const getAvailableRoles = () => {
-        if (currentUserRole === 'admin') {
+        if (currentUserRole === 'super_admin') {
+            if (isSelf) {
+                console.warn('⚠️ SUPER_ADMIN: Cannot modify own role');
+                return [{ value: user.role, label: user.role.charAt(0).toUpperCase() + user.role.slice(1) }];
+            }
             return [
-                { value: 'performer', label: 'Performer' },
-                { value: 'lead', label: 'Client Lead' },
-                { value: 'manager', label: 'Manager' },
-                { value: 'admin', label: 'Admin' }
-            ];
-        }
-        if (currentUserRole === 'manager') {
-            // Managers can only assign performer or lead roles
-            return [
-                { value: 'performer', label: 'Performer' },
-                { value: 'lead', label: 'Client Lead' }
+                { value: 'super_admin', label: 'Super Admin' },
+                { value: 'general_manager', label: 'General Manager' },
+                { value: 'assistant_manager', label: 'Assistant Manager' },
+                { value: 'team_lead', label: 'Team Lead' },
+                { value: 'performer', label: 'Performer' }
             ];
         }
         return [];
@@ -604,7 +863,7 @@ const AdminUserRow = ({ user, onUpdate, onDelete, isSelf, currentUserRole }) => 
                 <input
                     type="text"
                     value={role === 'lead' ? clientId : 'ALL ACCESS'}
-                    disabled={role !== 'lead'}
+                    disabled={role !== 'lead' || !canEdit}
                     onChange={(e) => { setClientId(e.target.value); setChanged(true); }}
                     placeholder="Enter Client ID"
                     className="w-full bg-gray-50 dark:bg-gray-800 text-xs font-bold p-2.5 rounded-lg border border-transparent focus:border-purple-500 outline-none transition-all disabled:opacity-50"
@@ -615,24 +874,26 @@ const AdminUserRow = ({ user, onUpdate, onDelete, isSelf, currentUserRole }) => 
                     value={role}
                     onChange={(e) => { setRole(e.target.value); setChanged(true); }}
                     className="bg-gray-50 dark:bg-gray-800 text-xs font-bold p-2.5 rounded-lg border border-transparent focus:border-purple-500 outline-none transition-all"
-                    disabled={isSelf || (currentUserRole === 'manager' && (user.role === 'admin' || user.role === 'manager'))}
+                    disabled={isSelf || !canEdit}
                 >
                     {availableRoles.map(opt => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
-                    {/* If current user is manager and target user is higher, show their current role as read-only */}
-                    {currentUserRole === 'manager' && (user.role === 'admin' || user.role === 'manager') && (
-                        <option value={user.role} disabled>{user.role.charAt(0).toUpperCase() + user.role.slice(1)}</option>
-                    )}
                 </select>
             </td>
             <td className="p-4 flex items-center gap-3">
                 {changed ? (
-                    <button onClick={handleSave} className="px-4 py-2 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-lg shadow-purple-500/30">Save</button>
+                    <button
+                        onClick={handleSave}
+                        disabled={!canEdit}
+                        className={`px-4 py-2 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-lg ${canEdit ? 'bg-purple-600 shadow-purple-500/30' : 'bg-gray-400 cursor-not-allowed opacity-50'}`}
+                    >
+                        Save
+                    </button>
                 ) : (
                     <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 opacity-40">Sync</span>
                 )}
-                {!isSelf && currentUserRole === 'admin' && (
+                {!isSelf && (currentUserRole === 'super_admin' || currentUserRole === 'general_manager') && (
                     <button
                         onClick={() => onDelete(user.id)}
                         className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-all"
