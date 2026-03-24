@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Modal from './components/Modal';
 import Toast from './components/Toast';
 import Dashboard from './components/Dashboard';
+import DataExport from './components/DataExport';
 import Login from './components/Login';
 import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
@@ -11,6 +12,7 @@ import WorkflowManager from './components/WorkflowManager';
 import UserManagement from './components/UserManagement';
 import ChangePassword from './components/ChangePassword';
 import AdminResetUserPassword from './components/AdminResetUserPassword';
+import AdminUserRow from './components/AdminUserRow';
 import { supabase } from './lib/supabase';
 import {
     LayoutDashboard,
@@ -173,7 +175,8 @@ const App = () => {
     const handleUpdateUserRole = async (userId, newRole, clientId) => {
         // RBAC: Only super_admin and general_manager can update users
         if (profile?.role !== 'super_admin' && profile?.role !== 'general_manager') {
-            alert('❌ Access Denied: Only super_admin and general_manager can update users');
+            setToastMessage('❌ Access Denied: Only super_admin and general_manager can update users');
+            setShowToast(true);
             return;
         }
 
@@ -188,14 +191,16 @@ const App = () => {
             setShowToast(true);
             fetchAllProfiles();
         } catch (error) {
-            alert('Error updating user: ' + error.message);
+            setToastMessage('❌ Error updating user: ' + error.message);
+            setShowToast(true);
         }
     };
 
     const handleDeleteUser = async (userId) => {
         // RBAC: Only super_admin and general_manager can delete users
         if (profile?.role !== 'super_admin' && profile?.role !== 'general_manager') {
-            alert('❌ Access Denied: Only super_admin and general_manager can delete users');
+            setToastMessage('❌ Access Denied: Only super_admin and general_manager can delete users');
+            setShowToast(true);
             return;
         }
 
@@ -207,7 +212,8 @@ const App = () => {
             setShowToast(true);
             fetchAllProfiles();
         } catch (error) {
-            alert('Error deleting user: ' + error.message);
+            setToastMessage('❌ Error deleting user: ' + error.message);
+            setShowToast(true);
         }
     };
 
@@ -216,20 +222,23 @@ const App = () => {
 
         // RBAC: Only super_admin and general_manager can add users
         if (profile?.role !== 'super_admin' && profile?.role !== 'general_manager') {
-            alert('❌ Access Denied: Only super_admin and general_manager can add users');
+            setToastMessage('❌ Access Denied: Only super_admin and general_manager can add users');
+            setShowToast(true);
             return;
         }
 
         // Validate inputs
         if (!newUserEmail || !newUserName) {
-            alert('❌ Email and Name are required');
+            setToastMessage('❌ Email and Name are required');
+            setShowToast(true);
             return;
         }
 
         // Validate email format
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(newUserEmail)) {
-            alert('❌ Invalid email format. Please use a valid email address (e.g., user@gmail.com, user@company.com)');
+            setToastMessage('❌ Invalid email format. Please use a valid email address (e.g., user@gmail.com, user@company.com)');
+            setShowToast(true);
             return;
         }
 
@@ -267,7 +276,8 @@ const App = () => {
             setNewUserRole('performer');
             fetchAllProfiles();
         } catch (error) {
-            alert('Error adding user: ' + error.message);
+            setToastMessage('❌ Error adding user: ' + error.message);
+            setShowToast(true);
         }
     };
 
@@ -328,9 +338,11 @@ const App = () => {
             const { error } = await supabase.from('status_entries').delete().eq('id', id);
             if (error) throw error;
             setStatusEntries(prev => prev.filter(e => e.id !== id));
-            setToastMessage('🗑️ Entry deleted'); setShowToast(true);
+            setToastMessage('🗑️ Entry deleted');
+            setShowToast(true);
         } catch (err) {
-            alert('Error: ' + err.message);
+            setToastMessage('❌ Error: ' + err.message);
+            setShowToast(true);
         }
     };
 
@@ -380,6 +392,7 @@ const App = () => {
                             onClick={() => setShowChangePasswordModal(true)} 
                             className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition-colors"
                             title="Change Your Password"
+                            aria-label="Change your password"
                         >
                             <Lock size={18} />
                         </button>
@@ -388,11 +401,12 @@ const App = () => {
                                 onClick={() => setShowAdminResetPasswordModal(true)} 
                                 className="p-2.5 rounded-xl bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 transition-colors"
                                 title="Reset User Password"
+                                aria-label="Reset user password"
                             >
                                 <KeyRound size={18} />
                             </button>
                         )}
-                        <button onClick={() => setDarkMode(!darkMode)} className="p-2.5 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                        <button onClick={() => setDarkMode(!darkMode)} className="p-2.5 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
                             {darkMode ? '☀️' : '🌙'}
                         </button>
                         <button onClick={handleLogout} className="flex items-center gap-2 px-4 py-2.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 rounded-xl font-bold transition-all text-sm uppercase tracking-widest">
@@ -449,6 +463,7 @@ const App = () => {
                                         onClick={adminSubTab === 'users' ? fetchAllProfiles : null}
                                         disabled={adminSubTab === 'users' ? isAdminSyncing : false}
                                         className={`p-2 bg-purple-50 dark:bg-purple-900/30 text-purple-600 rounded-lg ${adminSubTab === 'users' && isAdminSyncing ? 'animate-spin' : ''}`}
+                                        aria-label="Refresh user list"
                                     >
                                         <RefreshCw size={20} />
                                     </button>
@@ -628,6 +643,7 @@ const App = () => {
                                                             setShowToast(true);
                                                         }}
                                                         className="p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                                                        aria-label="Copy signup link"
                                                     >
                                                         <Copy size={16} />
                                                     </button>
@@ -750,11 +766,16 @@ const App = () => {
                                 </div>
 
                                 <div className="bg-gray-50 dark:bg-gray-800/50 rounded-3xl p-6 border border-gray-100 dark:border-gray-800">
-                                    <div className="flex justify-between items-center mb-6">
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
                                         <h3 className="text-sm font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">History Log <span className="text-[10px] bg-white dark:bg-gray-700 px-2 py-0.5 rounded-full border border-gray-100 dark:border-gray-600">{statusEntries.length}</span></h3>
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <DataExport 
+                                                entries={statusEntries} 
+                                                filteredEntries={displayedEntries}
+                                                label="Export"
+                                            />
                                             <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="p-2 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-900 rounded-lg outline-none font-bold" />
-                                            <button onClick={fetchFromSupabase} disabled={isSyncing} className={`p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg ${isSyncing ? 'animate-spin' : ''}`}>
+                                            <button onClick={fetchFromSupabase} disabled={isSyncing} className={`p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg ${isSyncing ? 'animate-spin' : ''}`} aria-label="Refresh entries">
                                                 <RefreshCw size={14} />
                                             </button>
                                         </div>
@@ -772,7 +793,7 @@ const App = () => {
                                                 </div>
                                                 <div className="text-right">
                                                     <p className={`font-black text-sm ${e.targetAchieved >= 100 ? 'text-green-600' : 'text-amber-500'}`}>{e.targetAchieved}%</p>
-                                                    <button onClick={() => handleDeleteEntry(e.id)} className="text-[10px] font-black uppercase text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">Delete</button>
+                                                    <button onClick={() => handleDeleteEntry(e.id)} className="text-[10px] font-black uppercase text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Delete entry">Delete</button>
                                                 </div>
                                             </div>
                                         )) : <div className="text-center py-20 bg-gray-50/50 dark:bg-gray-800/30 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-800"><p className="text-xs font-black uppercase text-gray-400">System Ready • No Logs Found</p></div>}
@@ -805,105 +826,6 @@ const App = () => {
                 />
             )}
         </>
-    );
-};
-
-// ── Admin Sub-Component ──
-const AdminUserRow = ({ user, onUpdate, onDelete, isSelf, currentUserRole }) => {
-    const [role, setRole] = useState(user.role);
-    const [clientId, setClientId] = useState(user.client_id || '');
-    const [changed, setChanged] = useState(false);
-
-    // Debug: Log access levels
-    const canEdit = currentUserRole === 'super_admin' || currentUserRole === 'general_manager';
-    const canDelete = currentUserRole === 'super_admin' || currentUserRole === 'general_manager';
-
-    if (currentUserRole === 'super_admin' || currentUserRole === 'general_manager') {
-        console.log(`✅ ${currentUserRole.toUpperCase()}: Full CRUD access`, { userId: user.id, userName: user.performer_name });
-    } else {
-        console.log(`⛔ ${currentUserRole}: Read-only access`, { userId: user.id, userName: user.performer_name });
-    }
-
-    const handleSave = () => {
-        if (!canEdit) {
-            console.error('⛔ Unauthorized: Cannot edit user');
-            return;
-        }
-        onUpdate(user.id, role, clientId);
-        setChanged(false);
-    };
-
-    // Define which roles the current user can assign
-    const getAvailableRoles = () => {
-        if (currentUserRole === 'super_admin') {
-            if (isSelf) {
-                console.warn('⚠️ SUPER_ADMIN: Cannot modify own role');
-                return [{ value: user.role, label: user.role.charAt(0).toUpperCase() + user.role.slice(1) }];
-            }
-            return [
-                { value: 'super_admin', label: 'Super Admin' },
-                { value: 'general_manager', label: 'General Manager' },
-                { value: 'assistant_manager', label: 'Assistant Manager' },
-                { value: 'team_lead', label: 'Team Lead' },
-                { value: 'performer', label: 'Performer' }
-            ];
-        }
-        return [];
-    };
-
-    const availableRoles = getAvailableRoles();
-
-    return (
-        <tr className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors group">
-            <td className="p-4">
-                <p className="font-bold text-sm tracking-tight">{user.performer_name}</p>
-                <p className="text-[10px] text-gray-400 font-medium font-mono">{user.id.slice(0, 8)}...</p>
-            </td>
-            <td className="p-4">
-                <input
-                    type="text"
-                    value={role === 'lead' ? clientId : 'ALL ACCESS'}
-                    disabled={role !== 'lead' || !canEdit}
-                    onChange={(e) => { setClientId(e.target.value); setChanged(true); }}
-                    placeholder="Enter Client ID"
-                    className="w-full bg-gray-50 dark:bg-gray-800 text-xs font-bold p-2.5 rounded-lg border border-transparent focus:border-purple-500 outline-none transition-all disabled:opacity-50"
-                />
-            </td>
-            <td className="p-4">
-                <select
-                    value={role}
-                    onChange={(e) => { setRole(e.target.value); setChanged(true); }}
-                    className="bg-gray-50 dark:bg-gray-800 text-xs font-bold p-2.5 rounded-lg border border-transparent focus:border-purple-500 outline-none transition-all"
-                    disabled={isSelf || !canEdit}
-                >
-                    {availableRoles.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                </select>
-            </td>
-            <td className="p-4 flex items-center gap-3">
-                {changed ? (
-                    <button
-                        onClick={handleSave}
-                        disabled={!canEdit}
-                        className={`px-4 py-2 text-white text-[10px] font-black uppercase tracking-widest rounded-lg shadow-lg ${canEdit ? 'bg-purple-600 shadow-purple-500/30' : 'bg-gray-400 cursor-not-allowed opacity-50'}`}
-                    >
-                        Save
-                    </button>
-                ) : (
-                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 opacity-40">Sync</span>
-                )}
-                {!isSelf && (currentUserRole === 'super_admin' || currentUserRole === 'general_manager') && (
-                    <button
-                        onClick={() => onDelete(user.id)}
-                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-all"
-                        title="Delete User Profile"
-                    >
-                        <Trash2 size={14} />
-                    </button>
-                )}
-            </td>
-        </tr>
     );
 };
 

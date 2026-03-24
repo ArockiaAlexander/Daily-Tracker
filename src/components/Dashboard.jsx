@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Bar, Pie, Line } from 'react-chartjs-2';
 import { TrendingUp, Users, Target, Clock, Filter, Trophy, Calendar } from 'lucide-react';
+import DataExport from './DataExport';
 
 ChartJS.register(
     CategoryScale,
@@ -164,6 +165,14 @@ const Dashboard = ({ entries, userProfile }) => {
                             <option value="all">ALL PERFORMERS</option>
                             {[...new Set(entries.map(e => e.performerName))].map(p => <option key={p} value={p}>{p}</option>)}
                         </select>
+                    </div>
+
+                    <div className="flex-1 min-w-[280px] flex justify-end">
+                        <DataExport 
+                            entries={entries} 
+                            filteredEntries={filteredEntries} 
+                            label="Export" 
+                        />
                     </div>
                 </div>
             )}
