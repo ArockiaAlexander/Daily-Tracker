@@ -112,7 +112,7 @@ export default function UserManagement({ currentUserRole }) {
       const { error } = await supabase
         .from('profiles')
         .update({ 
-          team_id: editingTeam || null,
+          team_id: null, // Clear legacy team_id to avoid constraint error since clients and teams are merged
           client_ref: editingTeam || null,
           client_id: clientCode,
           sub_division: editingSubDivision || null
