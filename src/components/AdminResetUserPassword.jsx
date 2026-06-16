@@ -56,7 +56,7 @@ const AdminResetUserPassword = ({ profile, allProfiles, onClose, onPasswordReset
             console.log(`🔐 Admin Password Reset: ${profile?.performer_name} (${profile?.role}) is resetting password for ${selectedUser?.performer_name}`);
 
             const { error: resetError } = await supabase.auth.resetPasswordForEmail(targetEmail, {
-                redirectTo: getAuthRedirectUrl('reset-password'),
+                redirectTo: getAuthRedirectUrl(),
             });
 
             if (resetError) {

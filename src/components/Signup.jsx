@@ -25,7 +25,7 @@ const Signup = ({ setView }) => {
                         full_name: fullName,
                         performer_name: fullName,
                     },
-                    emailRedirectTo: getAuthRedirectUrl('login'),
+                    emailRedirectTo: getAuthRedirectUrl(),
                 },
             });
 

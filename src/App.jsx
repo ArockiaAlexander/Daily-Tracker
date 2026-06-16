@@ -49,12 +49,12 @@ const App = () => {
     const [authCallbackError, setAuthCallbackError] = useState(null);
     const getInitialView = () => {
         if (isRecoveryCallback()) return 'reset-password';
-        const hash = window.location.hash.slice(1);
+        if (isAuthCallbackUrl()) return 'login';
+        const hash = window.location.hash.slice(1).split('#')[0];
         if (hash === 'signup' || hash.startsWith('signup')) return 'signup';
         if (hash === 'landing') return 'landing';
         if (hash === 'login') return 'login';
         if (hash === 'forgot-password') return 'forgot-password';
-        if (hash.includes('access_token')) return 'login';
         return 'landing';
     };
     const [view, setView] = useState(getInitialView); // 'landing', 'login', 'signup', 'forgot-password', 'reset-password', 'app'
@@ -309,7 +309,7 @@ const App = () => {
                 password: tempPassword,
                 options: {
                     data: { full_name: newUserName, performer_name: newUserName },
-                    emailRedirectTo: getAuthRedirectUrl('login'),
+                    emailRedirectTo: getAuthRedirectUrl(),
                 },
             });
 

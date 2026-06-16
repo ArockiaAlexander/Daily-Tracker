@@ -3,31 +3,54 @@ const basePath = () => {
     return base.endsWith('/') ? base : `${base}/`;
 };
 
-/** Full redirect URL for Supabase auth emails (includes Vite base path). */
-export function getAuthRedirectUrl(hash = 'login') {
+/**
+ * Redirect URL for Supabase auth emails.
+ * Use base path only — no # fragment. Supabase appends #access_token=... itself.
+ * Including a hash (e.g. #login) causes broken double-hash URLs like #login#access_token=...
+ */
+export function getAuthRedirectUrl() {
+    return `${window.location.origin}${basePath()}`;
+}
+
+/** In-app hash route URL (invite links, manual navigation). */
+export function getAppHashUrl(hash = 'login') {
     const fragment = hash.replace(/^#/, '');
     return `${window.location.origin}${basePath()}#${fragment}`;
 }
 
-/** Parse Supabase auth callback params from hash (implicit flow). */
-export function parseAuthCallback() {
+/** Extract auth params from hash, including Supabase double-hash (#login#access_token=...). */
+function extractHashParamString() {
     let hashRaw = window.location.hash.slice(1);
-    const hashRoutePrefixes = ['reset-password', 'login', 'signup'];
-    for (const prefix of hashRoutePrefixes) {
-        if (hashRaw === prefix) break;
+    if (!hashRaw) return '';
+
+    if (hashRaw.includes('#')) {
+        const segments = hashRaw.split('#');
+        return segments.find((s) => s.includes('access_token=') || s.includes('token_hash=') || s.includes('error='))
+            || segments[segments.length - 1];
+    }
+
+    const routePrefixes = ['reset-password', 'login', 'signup', 'landing', 'forgot-password', 'confirm-email'];
+    for (const prefix of routePrefixes) {
+        if (hashRaw === prefix) return '';
         if (hashRaw.startsWith(`${prefix}&`)) {
-            hashRaw = hashRaw.slice(prefix.length + 1);
-            break;
+            return hashRaw.slice(prefix.length + 1);
         }
     }
 
-    const hashParams = new URLSearchParams(hashRaw.includes('=') ? hashRaw : '');
+    return hashRaw;
+}
+
+/** Parse Supabase auth callback params from hash (implicit flow). */
+export function parseAuthCallback() {
+    const paramString = extractHashParamString();
+    const hashParams = new URLSearchParams(paramString.includes('=') ? paramString : '');
     const get = (key) => hashParams.get(key);
 
     return {
         type: get('type'),
         token_hash: get('token_hash'),
         access_token: get('access_token'),
+        refresh_token: get('refresh_token'),
         error: get('error') || get('error_description'),
     };
 }
@@ -65,7 +88,6 @@ export function clearAuthParamsFromUrl(hash = 'login') {
 
 let inflightCallback = null;
 
-/** Let Supabase parse implicit hash tokens — no PKCE code exchange. */
 async function doCompleteAuthCallback(supabase) {
     const callback = parseAuthCallback();
 
@@ -79,6 +101,14 @@ async function doCompleteAuthCallback(supabase) {
             token_hash: callback.token_hash,
         });
         if (error) return { error: error.message, kind: callback.type };
+    }
+
+    if (callback.access_token) {
+        const { error } = await supabase.auth.setSession({
+            access_token: callback.access_token,
+            refresh_token: callback.refresh_token || '',
+        });
+        if (error) return { error: error.message, kind: callback.type || 'session' };
     }
 
     const { data: { session }, error } = await supabase.auth.getSession();
