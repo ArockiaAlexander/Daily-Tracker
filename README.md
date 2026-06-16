@@ -119,7 +119,12 @@ npm run dev
 
 # Build for production
 npm run build
+
+# Optional: publish the built app to a gh-pages branch
+npm run deploy
 ```
+
+If GitHub Pages is still trying to load `/src/main.jsx`, the live site is serving the source tree instead of the Vite build output. In that case, make sure Pages is configured to deploy the built `dist` folder, either through the GitHub Actions workflow in `.github/workflows/deploy.yml` or by publishing the `gh-pages` branch with `npm run deploy`.
 
 ---
 
