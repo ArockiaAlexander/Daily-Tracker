@@ -43,16 +43,25 @@ const Dashboard = ({ entries, userProfile }) => {
     // ── Helper: Filters ──
     const filteredEntries = useMemo(() => {
         let result = [...entries];
+        
+        // Scope leads and performers to their respective client only
+        if (!isManager && userProfile?.client_id) {
+            result = result.filter(e => e.client_id === userProfile.client_id);
+        }
+        
         if (isManager && viewMode === 'individual' && selectedPerformer !== 'all') {
             result = result.filter(e => e.performerName === selectedPerformer);
         } else if (!isManager && selectedPerformer !== 'all') {
             result = result.filter(e => e.performerName === selectedPerformer);
         }
-        if (selectedClient !== 'all') {
+        
+        // Only managers can filter by any client
+        if (isManager && selectedClient !== 'all') {
             result = result.filter(e => e.client_id === selectedClient);
         }
+        
         return result;
-    }, [entries, selectedPerformer, selectedClient, isManager, viewMode]);
+    }, [entries, selectedPerformer, selectedClient, isManager, viewMode, userProfile]);
 
     if (!entries || entries.length === 0) {
         return (
