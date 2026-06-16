@@ -111,7 +111,7 @@ export default function UserManagement({ currentUserRole }) {
       const { error } = await supabase
         .from('profiles')
         .update({ 
-          team_id: editingTeam || null,
+          team_id: null, // Clear legacy team_id to avoid constraint error since clients and teams are merged
           client_ref: editingTeam || null,
           client_id: clientCode
         })
@@ -265,7 +265,7 @@ export default function UserManagement({ currentUserRole }) {
                           onClick={() => {
                             setSelectedUser(user.id === selectedUser ? null : user.id);
                             setEditingRole(user.role);
-                            setEditingTeam(user.team_id);
+                            setEditingTeam(user.client_ref);
                           }}
                           className="px-3 py-1 text-sm bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 rounded hover:bg-blue-200 dark:hover:bg-blue-900 transition"
                         >
@@ -330,7 +330,7 @@ export default function UserManagement({ currentUserRole }) {
                               </button>
                               <button
                                 onClick={() => handleUpdateTeam(user.id)}
-                                disabled={loading || editingTeam === user.team_id}
+                                disabled={loading || editingTeam === user.client_ref}
                                 className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition disabled:opacity-50"
                               >
                                 {loading ? 'Updating...' : 'Update Client/Team'}
