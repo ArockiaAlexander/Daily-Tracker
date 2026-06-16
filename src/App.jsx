@@ -299,8 +299,7 @@ const App = () => {
 
     const canDeleteEntry = (entry) => {
         if (!session || !profile) return false;
-        if (entry.user_id === session.user.id) return true;
-        return ['super_admin', 'general_manager'].includes(profile.role);
+        return ['super_admin', 'general_manager', 'assistant_manager'].includes(profile.role);
     };
 
     const canSelectPerformerOnForm = ['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role);
@@ -505,6 +504,11 @@ const App = () => {
     };
 
     const handleDeleteEntry = async (id) => {
+        if (!['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role)) {
+            setToastMessage('❌ Access Denied: Only managers can delete entries');
+            setShowToast(true);
+            return;
+        }
         if (!window.confirm('Delete this entry?')) return;
         try {
             const { error } = await supabase.from('status_entries').delete().eq('id', id);
@@ -907,7 +911,7 @@ const App = () => {
                             <div className="flex-1 max-w-xl">
                                 <div className="flex items-center gap-3 mb-8">
                                     <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-blue-600"><Briefcase size={24} /></div>
-                                    <h2 className="text-2xl font-bold">Log Activity</h2>
+                                    <h2 className="text-2xl font-bold">Add Task</h2>
                                 </div>
 
                                 <form onSubmit={handleSubmit} className="space-y-6">
