@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import Modal from './components/Modal';
 import Toast from './components/Toast';
 import Dashboard from './components/Dashboard';
-import DataExport from './components/DataExport';
+import DailySummary from './components/DailySummary';
 import Login from './components/Login';
 import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
@@ -72,7 +72,7 @@ const App = () => {
     const [darkMode, setDarkMode] = useState(() => localStorage.getItem('cbpet_darkMode') === 'true');
     const [showToast, setShowToast] = useState(false);
     const [toastMessage, setToastMessage] = useState('');
-    const [filterDate, setFilterDate] = useState('');
+    const [accessibleProfiles, setAccessibleProfiles] = useState([]);
     const [showErrorModal, setShowErrorModal] = useState(false);
     const [activeTab, setActiveTab] = useState('form');
     const [isSyncing, setIsSyncing] = useState(false);
@@ -186,6 +186,7 @@ const App = () => {
     useEffect(() => {
         if (session && profile) {
             fetchFromSupabase();
+            fetchAccessibleProfiles();
             if (profile.role === 'super_admin' || profile.role === 'general_manager') fetchAllProfiles();
         }
     }, [session, profile]);
@@ -229,6 +230,37 @@ const App = () => {
             setIsAdminSyncing(false);
         }
     };
+
+    const fetchAccessibleProfiles = async () => {
+        if (!profile) return;
+        try {
+            if (['super_admin', 'general_manager', 'assistant_manager'].includes(profile.role)) {
+                const { data, error } = await supabase.from('profiles').select('*').order('performer_name', { ascending: true });
+                if (error) throw error;
+                setAccessibleProfiles(data || []);
+            } else if (profile.role === 'team_lead' && profile.team_id) {
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('team_id', profile.team_id)
+                    .order('performer_name', { ascending: true });
+                if (error) throw error;
+                setAccessibleProfiles(data || []);
+            } else {
+                setAccessibleProfiles([]);
+            }
+        } catch (error) {
+            console.error('Error fetching accessible profiles:', error.message);
+        }
+    };
+
+    const canDeleteEntry = (entry) => {
+        if (!session || !profile) return false;
+        if (entry.user_id === session.user.id) return true;
+        return ['super_admin', 'general_manager'].includes(profile.role);
+    };
+
+    const canSelectPerformerOnForm = ['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role);
 
     const handleUpdateUserRole = async (userId, newRole, clientId) => {
         // RBAC: Only super_admin and general_manager can update users
@@ -460,8 +492,6 @@ const App = () => {
             </div>
         );
     }
-
-    const displayedEntries = filterDate ? statusEntries.filter(e => e.date === filterDate) : statusEntries;
 
     return (
         <>
@@ -795,14 +825,14 @@ const App = () => {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div>
                                             <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Performer</label>
-                                            {(profile?.role === 'super_admin' || profile?.role === 'general_manager') ? (
+                                            {canSelectPerformerOnForm ? (
                                                 <select
                                                     value={performerName}
                                                     onChange={e => setPerformerName(e.target.value)}
-                                                    className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%2２%２０stroke-linecap%3D%２round%２０stroke-linejoin%3D%２round%２２%３E%３Cpolyline%２０points%3D%２6%２9 %２1２ %２1８ %２9 %３C/polyline%３E%３C/svg%３E')] bg-[length: twentypx_ twentypx] bg-[right_1rem_center] bg-no-repeat"
+                                                    className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E')] bg-[length:20px_20px] bg-[right_1rem_center] bg-no-repeat"
                                                 >
                                                     <option value={profile.performer_name}>{profile.performer_name} (You)</option>
-                                                    {allProfiles.filter(p => p.id !== session.user.id).map(p => (
+                                                    {accessibleProfiles.filter(p => p.id !== session.user.id).map(p => (
                                                         <option key={p.id} value={p.performer_name}>{p.performer_name}</option>
                                                     ))}
                                                 </select>
@@ -830,7 +860,7 @@ const App = () => {
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Work Done</label>
+                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Completed Task (Pages/Titles/References)</label>
                                             <input type="number" value={completedPages} onChange={e => setCompletedPages(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" placeholder="150" required />
                                         </div>
                                     </div>
@@ -852,53 +882,15 @@ const App = () => {
                                 </form>
                             </div>
 
-                            <div className="flex-1 space-y-8">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="p-6 rounded-2xl bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900">
-                                        <p className="text-[10px] font-black text-green-600 uppercase tracking-widest mb-1">Target Achievement</p>
-                                        <span className={`text-4xl font-extrabold ${Number(targetAchievedPercentage) >= 100 ? 'text-green-700 dark:text-green-400' : 'text-amber-600'}`}>{targetAchievedPercentage}%</span>
-                                    </div>
-                                    <div className="p-6 rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900">
-                                        <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Time Efficiency</p>
-                                        <span className="text-4xl font-extrabold text-indigo-700 dark:text-indigo-400">{timeAchievedPercentage}%</span>
-                                    </div>
-                                </div>
-
-                                <div className="bg-gray-50 dark:bg-gray-800/50 rounded-3xl p-6 border border-gray-100 dark:border-gray-800">
-                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                                        <h3 className="text-sm font-black uppercase tracking-widest text-gray-500 flex items-center gap-2">History Log <span className="text-[10px] bg-white dark:bg-gray-700 px-2 py-0.5 rounded-full border border-gray-100 dark:border-gray-600">{statusEntries.length}</span></h3>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <DataExport 
-                                                entries={statusEntries} 
-                                                filteredEntries={displayedEntries}
-                                                label="Export"
-                                            />
-                                            <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="p-2 text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-900 rounded-lg outline-none font-bold" />
-                                            <button onClick={fetchFromSupabase} disabled={isSyncing} className={`p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg ${isSyncing ? 'animate-spin' : ''}`} aria-label="Refresh entries">
-                                                <RefreshCw size={14} />
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                                        {displayedEntries.length > 0 ? displayedEntries.map(e => (
-                                            <div key={e.id} className="p-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between hover:border-blue-200 transition-colors group">
-                                                <div className="flex-1">
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <span className="text-[10px] font-black text-gray-400">{e.date}</span>
-                                                        <span className="text-[9px] font-black uppercase py-0.5 px-1.5 bg-blue-50 dark:bg-blue-900/40 text-blue-600 rounded border border-blue-100 dark:border-blue-900">{e.taskType}</span>
-                                                    </div>
-                                                    <p className="font-bold text-sm truncate max-w-[200px] group-hover:text-blue-600 transition-colors" title={e.titleName}>{e.titleName}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className={`font-black text-sm ${e.targetAchieved >= 100 ? 'text-green-600' : 'text-amber-500'}`}>{e.targetAchieved}%</p>
-                                                    <button onClick={() => handleDeleteEntry(e.id)} className="text-[10px] font-black uppercase text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Delete entry">Delete</button>
-                                                </div>
-                                            </div>
-                                        )) : <div className="text-center py-20 bg-gray-50/50 dark:bg-gray-800/30 rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-800"><p className="text-xs font-black uppercase text-gray-400">System Ready • No Logs Found</p></div>}
-                                    </div>
-                                </div>
-                            </div>
+                            <DailySummary
+                                entries={statusEntries}
+                                profile={profile}
+                                accessibleProfiles={accessibleProfiles}
+                                onDeleteEntry={handleDeleteEntry}
+                                onRefresh={fetchFromSupabase}
+                                isSyncing={isSyncing}
+                                canDeleteEntry={canDeleteEntry}
+                            />
                         </div>
                     )}
                 </div>

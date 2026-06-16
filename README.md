@@ -68,21 +68,22 @@ A premium, enterprise-grade performance tracking system designed for the **CBPET
 
 ### Database Setup
 
-**Step 1: Run AUTH_SETUP.sql (Foundation)**
-1.  Navigate to your Supabase Project -> **SQL Editor**.
-2.  Copy the contents of `AUTH_SETUP.sql` from this repository and run it.
-3.  This will create the `profiles` and `status_entries` tables, enums, and all RLS policies.
+See **[docs/OPEN_SOURCE_IMPLEMENTATION_GUIDE.md](./docs/OPEN_SOURCE_IMPLEMENTATION_GUIDE.md)** for the full walkthrough.
 
-**Step 2: Run WORKFLOW_SETUP.sql (Workflow Management - NEW!)**
-1.  In the same Supabase SQL Editor, create a **New Query**.
-2.  Copy the contents of `WORKFLOW_SETUP.sql` from this repository and run it.
-3.  This will create:
-    - `workflows` table for workflow metadata
-    - `workflow_assignments` table for user-to-workflow mappings
-    - Performance indexes and RLS policies
-    - Helper views for workflow queries
+**Quick path (new Supabase project):**
 
-⚠️ **Important**: Run both SQL files in order. `WORKFLOW_SETUP.sql` depends on tables created by `AUTH_SETUP.sql`.
+1. Supabase → **SQL Editor** → run in order:
+   - `sql_commands/FRESH_SUPABASE_SETUP.sql`
+   - `sql_commands/WORKFLOW_SETUP.sql`
+   - `sql_commands/RLS_PROFILE_ROLE_FIX.sql`
+2. Promote your first user to admin (see guide Section 4, Step 7).
+
+**Legacy incremental path:**
+
+1. `sql_commands/AUTH_SETUP.sql`
+2. `sql_commands/RBAC_MIGRATION.sql`
+3. `sql_commands/WORKFLOW_SETUP.sql`
+4. `sql_commands/RLS_PROFILE_ROLE_FIX.sql`
 
 ### Using Workflow Management ✨
 
@@ -98,7 +99,7 @@ Once both SQL migrations are complete:
 📚 **See [WORKFLOW_IMPLEMENTATION.md](./WORKFLOW_IMPLEMENTATION.md) for detailed feature documentation.**
 
 ### Environment Setup
-1.  Create a `.env` file from `.env.example`:
+1.  Copy the environment template:
     ```bash
     cp .env.example .env
     ```
@@ -168,6 +169,26 @@ Daily-Tracker/
 
 ---
 
+## 📚 Documentation
+
+**Start here for open source / self-hosted setup:**
+
+→ **[Open Source Implementation Guide (top to end)](./docs/OPEN_SOURCE_IMPLEMENTATION_GUIDE.md)**
+
+| Guide | Topic |
+|-------|-------|
+| [OPEN_SOURCE_IMPLEMENTATION_GUIDE.md](./docs/OPEN_SOURCE_IMPLEMENTATION_GUIDE.md) | Full fork → deploy walkthrough |
+| [FIRST_USER_SETUP_GUIDE.md](./docs/FIRST_USER_SETUP_GUIDE.md) | Bootstrap first admin |
+| [ADD_NEW_USER_GUIDE.md](./docs/ADD_NEW_USER_GUIDE.md) | Add team members |
+| [EMAIL_SETUP_GUIDE.md](./docs/EMAIL_SETUP_GUIDE.md) | Optional SMTP |
+| [DEPLOYMENT_CHECKLIST.md](./docs/DEPLOYMENT_CHECKLIST.md) | Production checklist |
+| [RBAC_OVERVIEW.md](./docs/RBAC_OVERVIEW.md) | Roles and permissions |
+
+---
+
 ## 📄 License
-This project is private and proprietary. Developed for the CBPET Team.
-&copy; 2024 CBPET Engine Alpha.
+
+This project is open for fork and self-hosted use. Add a `LICENSE` file (e.g. MIT) for your distribution.  
+See [OPEN_SOURCE_IMPLEMENTATION_GUIDE.md](./docs/OPEN_SOURCE_IMPLEMENTATION_GUIDE.md) for implementation and contributing notes.
+
+&copy; 2024–2026 CBPET Daily Tracker contributors.

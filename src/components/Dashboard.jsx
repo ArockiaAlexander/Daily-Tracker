@@ -30,11 +30,12 @@ ChartJS.register(
 const Dashboard = ({ entries, userProfile }) => {
     const [selectedPerformer, setSelectedPerformer] = useState('all');
     const [selectedClient, setSelectedClient] = useState('all');
+    const [viewMode, setViewMode] = useState('team');
 
     // Normalize role for backward compatibility (old + new system)
     const rawRole = userProfile?.role || 'performer';
     const isAdmin = ['admin', 'super_admin', 'general_manager'].includes(rawRole);
-    const isManager = ['manager', 'general_manager', 'assistant_manager'].includes(rawRole);
+    const isManager = ['manager', 'general_manager', 'assistant_manager', 'super_admin'].includes(rawRole);
     const isLead = ['lead', 'team_lead'].includes(rawRole);
     const isPerformer = rawRole === 'performer';
     const role = rawRole;
@@ -42,14 +43,16 @@ const Dashboard = ({ entries, userProfile }) => {
     // ── Helper: Filters ──
     const filteredEntries = useMemo(() => {
         let result = [...entries];
-        if (selectedPerformer !== 'all') {
+        if (isManager && viewMode === 'individual' && selectedPerformer !== 'all') {
+            result = result.filter(e => e.performerName === selectedPerformer);
+        } else if (!isManager && selectedPerformer !== 'all') {
             result = result.filter(e => e.performerName === selectedPerformer);
         }
         if (selectedClient !== 'all') {
             result = result.filter(e => e.client_id === selectedClient);
         }
         return result;
-    }, [entries, selectedPerformer, selectedClient]);
+    }, [entries, selectedPerformer, selectedClient, isManager, viewMode]);
 
     if (!entries || entries.length === 0) {
         return (
@@ -156,16 +159,37 @@ const Dashboard = ({ entries, userProfile }) => {
                         </div>
                     )}
 
+                    {isManager && (
+                        <div className="flex rounded-xl bg-white dark:bg-gray-900 p-1 border border-gray-200 dark:border-gray-700">
+                            <button
+                                type="button"
+                                onClick={() => { setViewMode('team'); setSelectedPerformer('all'); }}
+                                className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${viewMode === 'team' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+                            >
+                                Team Performance
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('individual')}
+                                className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${viewMode === 'individual' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}
+                            >
+                                Individual
+                            </button>
+                        </div>
+                    )}
+
+                    {(!isManager || viewMode === 'individual' || isLead) && (
                     <div className="flex-1 min-w-[200px]">
                         <select
                             value={selectedPerformer}
                             onChange={e => setSelectedPerformer(e.target.value)}
                             className="w-full bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 p-3 rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-blue-500 outline-none"
                         >
-                            <option value="all">ALL PERFORMERS</option>
+                            <option value="all">{isLead ? 'ALL TEAMMATES' : 'ALL PERFORMERS'}</option>
                             {[...new Set(entries.map(e => e.performerName))].map(p => <option key={p} value={p}>{p}</option>)}
                         </select>
                     </div>
+                    )}
 
                     <div className="flex-1 min-w-[280px] flex justify-end">
                         <DataExport 
