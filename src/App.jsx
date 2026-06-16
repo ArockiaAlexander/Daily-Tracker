@@ -17,9 +17,8 @@ import { supabase } from './lib/supabase';
 import {
     completeAuthCallback,
     isRecoveryCallback,
-    isSignupConfirmCallback,
     isAuthCallbackUrl,
-    clearAuthParamsFromUrl,
+    sanitizeAuthUrl,
     getAuthRedirectUrl,
 } from './lib/authRedirect';
 import {
@@ -50,14 +49,12 @@ const App = () => {
     const [authCallbackError, setAuthCallbackError] = useState(null);
     const getInitialView = () => {
         if (isRecoveryCallback()) return 'reset-password';
-        if (isSignupConfirmCallback()) return 'confirm-email';
         const hash = window.location.hash.slice(1);
-        if (hash === 'confirm-email' || hash.startsWith('confirm-email')) return 'confirm-email';
         if (hash === 'signup' || hash.startsWith('signup')) return 'signup';
         if (hash === 'landing') return 'landing';
         if (hash === 'login') return 'login';
         if (hash === 'forgot-password') return 'forgot-password';
-        if (hash === 'reset-password' || hash.startsWith('reset-password')) return 'reset-password';
+        if (hash.includes('access_token')) return 'login';
         return 'landing';
     };
     const [view, setView] = useState(getInitialView); // 'landing', 'login', 'signup', 'forgot-password', 'reset-password', 'app'
@@ -101,23 +98,23 @@ const App = () => {
 
         async function bootstrapAuth() {
             const callbackResult = await completeAuthCallback(supabase);
-
             const { data: { session } } = await supabase.auth.getSession();
             if (!mounted) return;
 
             setSession(session);
             setAuthCallbackError(callbackResult.error || null);
 
-            if (callbackResult.error || callbackResult.kind === 'recovery' || isRecoveryCallback()) {
+            if (session) {
+                if (callbackResult.kind === 'recovery' || isRecoveryCallback()) {
+                    setView('reset-password');
+                } else {
+                    setView('app');
+                }
+                fetchProfile(session.user.id);
+            } else if (callbackResult.error || isRecoveryCallback()) {
                 setView('reset-password');
-            } else if (callbackResult.kind === 'signup' || callbackResult.kind === 'email' || isSignupConfirmCallback()) {
-                setView('confirm-email');
-                clearAuthParamsFromUrl('confirm-email');
-            } else if (session) {
-                setView('app');
             }
 
-            if (session) fetchProfile(session.user.id);
             setAuthLoading(false);
         }
 
@@ -128,19 +125,10 @@ const App = () => {
 
             setSession(session);
 
-            if (event === 'PASSWORD_RECOVERY' || isRecoveryCallback()) {
-                setView('reset-password');
-                if (session) fetchProfile(session.user.id);
-                return;
-            }
-
             if (session) {
                 fetchProfile(session.user.id);
-                if (isRecoveryCallback() || window.location.hash.includes('reset-password')) {
+                if (event === 'PASSWORD_RECOVERY' || isRecoveryCallback()) {
                     setView('reset-password');
-                } else if (isSignupConfirmCallback()) {
-                    setView('confirm-email');
-                    clearAuthParamsFromUrl('confirm-email');
                 } else {
                     setView('app');
                 }
@@ -152,7 +140,7 @@ const App = () => {
                     return;
                 } else {
                     setView((current) => {
-                        if (current === 'reset-password' || current === 'confirm-email') return current;
+                        if (current === 'reset-password') return current;
                         const hash = window.location.hash;
                         if (hash === '#signup') return 'signup';
                         if (hash === '#landing') return 'landing';
@@ -321,7 +309,7 @@ const App = () => {
                 password: tempPassword,
                 options: {
                     data: { full_name: newUserName, performer_name: newUserName },
-                    emailRedirectTo: getAuthRedirectUrl('confirm-email'),
+                    emailRedirectTo: getAuthRedirectUrl('login'),
                 },
             });
 
@@ -437,28 +425,6 @@ const App = () => {
 
     if (view === 'reset-password') {
         return <ResetPassword setView={setView} authCallbackError={authCallbackError} />;
-    }
-
-    if (view === 'confirm-email') {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
-                <div className="max-w-md w-full bg-white dark:bg-gray-900 rounded-3xl shadow-2xl p-10 border-2 border-green-200 dark:border-green-900/50 text-center">
-                    <div className="w-20 h-20 bg-green-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                        <ShieldCheck className="text-white w-10 h-10" />
-                    </div>
-                    <h1 className="text-3xl font-black text-gray-900 dark:text-white mb-3">Email Confirmed</h1>
-                    <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">
-                        Your signup is verified. You can now use the tracker with your email and password.
-                    </p>
-                    <button
-                        onClick={() => setView(session ? 'app' : 'login')}
-                        className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-sm"
-                    >
-                        {session ? 'Continue to App' : 'Go to Login'}
-                    </button>
-                </div>
-            </div>
-        );
     }
 
     if (!session) {

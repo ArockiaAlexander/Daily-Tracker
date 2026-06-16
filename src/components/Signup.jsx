@@ -25,7 +25,7 @@ const Signup = ({ setView }) => {
                         full_name: fullName,
                         performer_name: fullName,
                     },
-                    emailRedirectTo: getAuthRedirectUrl('confirm-email'),
+                    emailRedirectTo: getAuthRedirectUrl('login'),
                 },
             });
 
@@ -60,7 +60,7 @@ const Signup = ({ setView }) => {
                 {success ? (
                     <div className="text-center">
                         <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 rounded-2xl text-green-600 dark:text-green-400 text-sm font-bold">
-                            ✅ Registration successful! Please check your email for the confirmation link.
+                            ✅ Account created! Log in with your email and password. Use the 🔒 icon after login to change your password anytime.
                         </div>
                         <button
                             onClick={() => setView('login')}

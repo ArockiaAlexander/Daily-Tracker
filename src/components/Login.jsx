@@ -112,7 +112,7 @@ const Login = ({ setView }) => {
 
                 <div className="mt-10 pt-8 border-t border-gray-100 dark:border-gray-800 text-center">
                     <p className="text-gray-400 dark:text-gray-500 text-[10px] font-bold uppercase tracking-wider leading-relaxed">
-                        Designated access only.<br />Contact System Administrator for credentials.
+                        After login, click 🔒 in the header to change your password anytime.
                     </p>
                 </div>
             </div>

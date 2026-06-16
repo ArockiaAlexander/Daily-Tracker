@@ -24,7 +24,7 @@ const ResetPassword = ({ setView, authCallbackError }) => {
             } else if (authCallbackError) {
                 setError(authCallbackError);
             } else {
-                setError('This reset link is invalid or has expired. Request a new one from Forgot Password.');
+                setError('Could not verify reset link. Log in with your current password, then use the 🔒 icon to change it.');
             }
             setInitializing(false);
         }
@@ -104,7 +104,7 @@ const ResetPassword = ({ setView, authCallbackError }) => {
                             <span>{error || 'Invalid reset link.'}</span>
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                            Request a new reset email after deploying the latest app — old links may have the wrong redirect URL.
+                            Easier option: log in and click 🔒 in the header to change your password.
                         </p>
                         <button
                             type="button"

@@ -36,42 +36,44 @@ const ForgotPassword = ({ setView }) => {
                     className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-blue-600 hover:text-blue-700 dark:text-blue-400 mb-10 transition-colors"
                 >
                     <ArrowLeft className="w-4 h-4" />
-                    Secure Login
+                    Back to Login
                 </button>
 
-                <div className="text-center mb-10">
-                    <h1 className="text-4xl font-black text-gray-900 dark:text-white tracking-tight">Recovery</h1>
-                    <p className="text-gray-500 dark:text-gray-400 mt-3 font-medium">Verify identity to reset credentials</p>
+                <div className="text-center mb-8">
+                    <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight">Forgot Password</h1>
+                    <p className="text-gray-500 dark:text-gray-400 mt-3 text-sm font-medium">
+                        We&apos;ll email a reset link, or log in and use the 🔒 icon in the header to change your password.
+                    </p>
                 </div>
 
                 {success ? (
                     <div className="text-center">
-                        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-3xl flex items-center justify-center mx-auto mb-8">
-                            <CheckCircle2 className="text-green-600 w-10 h-10" />
+                        <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                            <CheckCircle2 className="text-green-600 w-8 h-8" />
                         </div>
-                        <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-3">Transmission Sent</h3>
-                        <p className="text-gray-500 dark:text-gray-400 mb-10 text-sm font-medium leading-relaxed">
-                            A reset link has been dispatched to <strong className="text-gray-900 dark:text-white">{email}</strong>. Please check your secure inbox.
+                        <h3 className="text-xl font-black text-gray-900 dark:text-white mb-3">Check Your Email</h3>
+                        <p className="text-gray-500 dark:text-gray-400 mb-8 text-sm">
+                            Reset link sent to <strong>{email}</strong>. Open it in the same browser, then set a new password.
                         </p>
                         <button
                             onClick={() => setView('login')}
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl shadow-xl transition-all uppercase tracking-widest text-sm"
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-sm"
                         >
-                            Return to Login
+                            Back to Login
                         </button>
                     </div>
                 ) : (
                     <>
                         {error && (
-                            <div className="mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-2xl text-red-600 dark:text-red-400 text-sm font-bold flex items-center gap-2">
-                                <span>⚠️</span> {error}
+                            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-2xl text-red-600 dark:text-red-400 text-sm font-bold">
+                                {error}
                             </div>
                         )}
 
-                        <form onSubmit={handleReset} className="space-y-8">
+                        <form onSubmit={handleReset} className="space-y-6">
                             <div>
-                                <label className="block text-[11px] font-black uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2 ml-1">
-                                    Registered Email
+                                <label className="block text-[11px] font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">
+                                    Your Email
                                 </label>
                                 <div className="relative">
                                     <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -79,8 +81,8 @@ const ForgotPassword = ({ setView }) => {
                                         type="email"
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
-                                        className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-gray-800 border-2 border-transparent focus:border-blue-500 focus:bg-white dark:focus:bg-gray-900 rounded-2xl outline-none transition-all dark:text-white font-medium"
-                                        placeholder="name@cbpet.com"
+                                        className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-gray-800 border-2 border-transparent focus:border-blue-500 rounded-2xl outline-none dark:text-white font-medium"
+                                        placeholder="name@company.com"
                                         required
                                     />
                                 </div>
@@ -89,7 +91,7 @@ const ForgotPassword = ({ setView }) => {
                             <button
                                 type="submit"
                                 disabled={loading}
-                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl shadow-xl shadow-blue-500/30 active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 uppercase tracking-widest text-sm"
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-sm disabled:opacity-70 flex items-center justify-center gap-2"
                             >
                                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Send Reset Link'}
                             </button>
