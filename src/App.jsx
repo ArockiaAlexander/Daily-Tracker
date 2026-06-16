@@ -638,7 +638,7 @@ const App = () => {
 
                 <div className="container mx-auto max-w-7xl bg-white dark:bg-gray-900 rounded-3xl p-6 md:p-10 shadow-xl border border-gray-100 dark:border-gray-800 min-h-[600px]">
                     {activeTab === 'dashboard' ? (
-                        <Dashboard entries={statusEntries} userProfile={profile} />
+                        <Dashboard entries={statusEntries} userProfile={profile} clients={clients} />
                     ) : activeTab === 'super_admin' ? (
                         <div className="space-y-8">
                             <div className="flex justify-between items-center">

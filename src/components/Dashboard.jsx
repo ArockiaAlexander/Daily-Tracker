@@ -27,10 +27,15 @@ ChartJS.register(
     Legend
 );
 
-const Dashboard = ({ entries, userProfile }) => {
+const Dashboard = ({ entries, userProfile, clients = [] }) => {
     const [selectedPerformer, setSelectedPerformer] = useState('all');
     const [selectedClient, setSelectedClient] = useState('all');
     const [viewMode, setViewMode] = useState('team');
+    const [groupBy, setGroupBy] = useState(() => {
+        if (['manager', 'general_manager', 'assistant_manager', 'super_admin'].includes(userProfile?.role)) return 'client';
+        if (['lead', 'team_lead', 'group_lead'].includes(userProfile?.role)) return 'performer';
+        return 'task_type';
+    });
 
     // Normalize role for backward compatibility (old + new system)
     const rawRole = userProfile?.role || 'performer';
@@ -96,30 +101,51 @@ const Dashboard = ({ entries, userProfile }) => {
     const userScore = rankings.find(r => r.name === userProfile?.performer_name)?.score || 0;
 
     // ── Chart Data Preparations ──
+    const groupField = useMemo(() => {
+        if (groupBy === 'client') return 'client_id';
+        if (groupBy === 'sub_division') return 'sub_division';
+        if (groupBy === 'performer') return 'performerName';
+        return 'taskType';
+    }, [groupBy]);
 
-    // Performer-wise or Client-wise grouping (supports both old and new roles)
-    const groupData = {};
-    let groupField;
-    if (isLead) {
-        groupField = 'performerName';
-    } else if (isAdmin || isManager) {
-        groupField = 'client_id';
-    } else {
-        groupField = 'taskType';
-    }
+    const groupedData = useMemo(() => {
+        const dataMap = {};
+        filteredEntries.forEach(e => {
+            const key = e[groupField] || (groupField === 'sub_division' ? 'General' : 'Unknown');
+            if (!dataMap[key]) {
+                dataMap[key] = { 
+                    totalTarget: 0, 
+                    totalTime: 0, 
+                    count: 0, 
+                    completedPages: 0,
+                    estimatedTime: 0,
+                    takenTime: 0
+                };
+            }
+            dataMap[key].totalTarget += Number(e.targetAchieved || 0);
+            dataMap[key].totalTime += Number(e.timeAchieved || 0);
+            dataMap[key].count += 1;
+            dataMap[key].completedPages += Number(e.completedPages || 0);
+            dataMap[key].estimatedTime += Number(e.estimatedTime || 0);
+            dataMap[key].takenTime += Number(e.takenTime || 0);
+        });
 
-    filteredEntries.forEach(e => {
-        const key = e[groupField] || 'Unknown';
-        if (!groupData[key]) groupData[key] = { total: 0, count: 0 };
-        groupData[key].total += Number(e.targetAchieved);
-        groupData[key].count += 1;
-    });
+        return Object.entries(dataMap).map(([key, data]) => ({
+            name: key,
+            count: data.count,
+            avgTarget: (data.totalTarget / data.count).toFixed(2),
+            avgTime: (data.totalTime / data.count).toFixed(2),
+            completedPages: data.completedPages,
+            estimatedTime: data.estimatedTime.toFixed(1),
+            takenTime: data.takenTime.toFixed(1)
+        })).sort((a, b) => b.avgTarget - a.avgTarget);
+    }, [filteredEntries, groupField]);
 
     const barData = {
-        labels: Object.keys(groupData),
+        labels: groupedData.map(g => g.name),
         datasets: [{
             label: 'Avg Achievement %',
-            data: Object.values(groupData).map(g => (g.total / g.count).toFixed(2)),
+            data: groupedData.map(g => g.avgTarget),
             backgroundColor: 'rgba(59, 130, 246, 0.6)',
             borderRadius: 8,
         }]
@@ -163,7 +189,11 @@ const Dashboard = ({ entries, userProfile }) => {
                                 className="w-full bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 p-3 rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-blue-500 outline-none"
                             >
                                 <option value="all">ALL CLIENTS</option>
-                                {[...new Set(entries.map(e => e.client_id))].map(c => <option key={c} value={c}>{c}</option>)}
+                                {clients && clients.length > 0 ? (
+                                    clients.map(c => <option key={c.id} value={c.code}>{c.code}</option>)
+                                ) : (
+                                    [...new Set(entries.map(e => e.client_id))].map(c => <option key={c} value={c}>{c}</option>)
+                                )}
                             </select>
                         </div>
                     )}
@@ -198,6 +228,21 @@ const Dashboard = ({ entries, userProfile }) => {
                             {[...new Set(entries.map(e => e.performerName))].map(p => <option key={p} value={p}>{p}</option>)}
                         </select>
                     </div>
+                    )}
+
+                    {(isManager || isLead) && (
+                        <div className="flex-1 min-w-[150px]">
+                            <select
+                                value={groupBy}
+                                onChange={e => setGroupBy(e.target.value)}
+                                className="w-full bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-700 p-3 rounded-xl text-xs font-bold font-mono focus:ring-2 focus:ring-blue-500 outline-none"
+                            >
+                                {isManager && <option value="client">GROUP BY: CLIENT</option>}
+                                {(isManager || isLead) && <option value="sub_division">GROUP BY: SUB-DIVISION</option>}
+                                {(isManager || isLead) && <option value="performer">GROUP BY: PERFORMER</option>}
+                                <option value="task_type">GROUP BY: PROCESS</option>
+                            </select>
+                        </div>
                     )}
 
                     <div className="flex-1 min-w-[280px] flex justify-end">
@@ -265,7 +310,7 @@ const Dashboard = ({ entries, userProfile }) => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div className="bg-white dark:bg-gray-900 p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
                     <h3 className="text-xs font-black uppercase tracking-[0.2em] text-gray-400 mb-8 flex items-center gap-2">
-                        {isPerformer ? 'Activity Distribution' : (isLead ? 'Team Member Comparison' : 'Client-wise Analysis')}
+                        Performance Comparison ({groupBy.replace('_', ' ')} breakdown)
                     </h3>
                     <div className="h-[300px]">
                         <Bar
@@ -295,6 +340,40 @@ const Dashboard = ({ entries, userProfile }) => {
                             }}
                         />
                     </div>
+                </div>
+            </div>
+
+            {/* ── Detailed Performance Breakdown Report Table ── */}
+            <div className="bg-white dark:bg-gray-900 p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-gray-400 mb-6 flex justify-between items-center">
+                    <span>Performance Breakdown ({groupBy.replace('_', ' ')} report)</span>
+                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold bg-blue-50 dark:bg-blue-900/30 px-3 py-1 rounded-full uppercase">Overall Data</span>
+                </h3>
+                <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-800/80">
+                    <table className="w-full text-left border-collapse">
+                        <thead>
+                            <tr className="bg-gray-50/50 dark:bg-gray-850/50 border-b border-gray-100 dark:border-gray-800">
+                                <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400">{groupBy.replace('_', ' ')} Name</th>
+                                <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400 text-center">Total Logs</th>
+                                <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400 text-center">Completed Tasks (Pages)</th>
+                                <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400 text-center">Total Hours</th>
+                                <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400 text-right">Avg Target Achievement</th>
+                                <th className="p-4 text-[10px] font-black uppercase tracking-widest text-gray-400 text-right">Avg Time Efficiency</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-150 dark:divide-gray-800">
+                            {groupedData.map((row) => (
+                                <tr key={row.name} className="hover:bg-gray-50/50 dark:hover:bg-gray-850/50 transition-colors">
+                                    <td className="p-4 font-bold text-sm text-gray-900 dark:text-white uppercase">{row.name}</td>
+                                    <td className="p-4 text-sm text-gray-600 dark:text-gray-400 text-center font-semibold font-mono">{row.count}</td>
+                                    <td className="p-4 text-sm text-gray-600 dark:text-gray-400 text-center font-semibold font-mono">{row.completedPages}</td>
+                                    <td className="p-4 text-sm text-gray-600 dark:text-gray-400 text-center font-semibold font-mono">{row.takenTime}h</td>
+                                    <td className={`p-4 text-sm font-black text-right font-mono ${Number(row.avgTarget) >= 100 ? 'text-green-600' : 'text-amber-500'}`}>{row.avgTarget}%</td>
+                                    <td className="p-4 text-sm font-black text-right text-indigo-500 font-mono">{row.avgTime}%</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
