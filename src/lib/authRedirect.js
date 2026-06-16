@@ -1,7 +1,17 @@
+const basePath = () => {
+    const base = import.meta.env.BASE_URL || '/';
+    return base.endsWith('/') ? base : `${base}/`;
+};
+
+/** Full redirect URL for Supabase auth emails (includes Vite base path). */
+export function getAuthRedirectUrl(hash = 'login') {
+    const fragment = hash.replace(/^#/, '');
+    return `${window.location.origin}${basePath()}#${fragment}`;
+}
+
 /** Parse Supabase auth callback params from hash and query string. */
 export function parseAuthCallback() {
     let hashRaw = window.location.hash.slice(1);
-    // Handle `#reset-password&access_token=...` or `#confirm-email&...`
     const hashRoutePrefixes = ['reset-password', 'confirm-email', 'login', 'signup'];
     for (const prefix of hashRoutePrefixes) {
         if (hashRaw === prefix) break;
@@ -25,15 +35,25 @@ export function parseAuthCallback() {
     };
 }
 
-export function isRecoveryCallback() {
-    const { type, access_token } = parseAuthCallback();
+export function isRecoveryFromUrl() {
     const hash = window.location.hash;
-    return type === 'recovery' || (hash.includes('access_token') && hash.includes('type=recovery'));
+    const { type, code } = parseAuthCallback();
+    return (
+        hash.includes('reset-password') ||
+        type === 'recovery' ||
+        (hash.includes('access_token') && hash.includes('type=recovery')) ||
+        (Boolean(code) && hash.includes('reset-password'))
+    );
+}
+
+export function isRecoveryCallback() {
+    return isRecoveryFromUrl();
 }
 
 export function isSignupConfirmCallback() {
     const { type } = parseAuthCallback();
-    return type === 'signup' || type === 'email' || type === 'invite';
+    const hash = window.location.hash;
+    return type === 'signup' || type === 'email' || type === 'invite' || hash.includes('confirm-email');
 }
 
 export function isAuthCallbackUrl() {
@@ -51,13 +71,20 @@ export function isAuthCallbackUrl() {
     );
 }
 
-export function clearAuthParamsFromUrl() {
-    const path = window.location.pathname;
-    window.history.replaceState(null, '', `${path}#login`);
+/** Remove ?code= from URL but keep hash route (and base path). */
+export function sanitizeAuthUrl(hash = 'login') {
+    const fragment = hash.replace(/^#/, '');
+    window.history.replaceState(null, '', `${window.location.origin}${basePath()}#${fragment}`);
 }
 
-/** Exchange token_hash / PKCE code from email links before getSession(). */
-export async function completeAuthCallback(supabase) {
+/** @deprecated use sanitizeAuthUrl */
+export function clearAuthParamsFromUrl(hash = 'login') {
+    sanitizeAuthUrl(hash);
+}
+
+let inflightCallback = null;
+
+async function doCompleteAuthCallback(supabase) {
     const callback = parseAuthCallback();
 
     if (callback.error) {
@@ -70,16 +97,39 @@ export async function completeAuthCallback(supabase) {
             token_hash: callback.token_hash,
         });
         if (error) return { error: error.message, kind: callback.type };
-        clearAuthParamsFromUrl();
-        return { kind: callback.type };
+        sanitizeAuthUrl(isRecoveryFromUrl() ? 'reset-password' : 'login');
+        return { kind: callback.type === 'recovery' ? 'recovery' : callback.type };
     }
 
     if (callback.code) {
         const { error } = await supabase.auth.exchangeCodeForSession(callback.code);
-        if (error) return { error: error.message, kind: 'pkce' };
-        clearAuthParamsFromUrl();
-        return { kind: isRecoveryCallback() ? 'recovery' : 'session' };
+        if (error) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                return { error: error.message, kind: 'pkce' };
+            }
+        }
+        sanitizeAuthUrl(isRecoveryFromUrl() ? 'reset-password' : 'confirm-email');
+        return { kind: isRecoveryFromUrl() ? 'recovery' : 'session' };
+    }
+
+    if (callback.access_token) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+            sanitizeAuthUrl(isRecoveryFromUrl() ? 'reset-password' : 'login');
+            return { kind: isRecoveryFromUrl() ? 'recovery' : 'session' };
+        }
     }
 
     return { kind: null };
+}
+
+/** Exchange token_hash / PKCE code from email links (single-flight). */
+export function completeAuthCallback(supabase) {
+    if (!inflightCallback) {
+        inflightCallback = doCompleteAuthCallback(supabase).finally(() => {
+            inflightCallback = null;
+        });
+    }
+    return inflightCallback;
 }

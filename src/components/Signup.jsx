@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getAuthRedirectUrl } from '../lib/authRedirect';
 import { supabase } from '../lib/supabase';
 import { Mail, Lock, User, UserPlus, Loader2, ArrowLeft } from 'lucide-react';
 
@@ -24,7 +25,7 @@ const Signup = ({ setView }) => {
                         full_name: fullName,
                         performer_name: fullName,
                     },
-                    emailRedirectTo: `${window.location.origin}/#confirm-email`,
+                    emailRedirectTo: getAuthRedirectUrl('confirm-email'),
                 },
             });
 

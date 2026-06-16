@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getAuthRedirectUrl } from '../lib/authRedirect';
 import { supabase } from '../lib/supabase';
 import { Mail, ArrowLeft, Loader2, CheckCircle2 } from 'lucide-react';
 
@@ -15,7 +16,7 @@ const ForgotPassword = ({ setView }) => {
 
         try {
             const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-                redirectTo: `${window.location.origin}/#reset-password`,
+                redirectTo: getAuthRedirectUrl('reset-password'),
             });
 
             if (resetError) throw resetError;

@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { completeAuthCallback } from '../lib/authRedirect';
+import { sanitizeAuthUrl } from '../lib/authRedirect';
 import { KeyRound, Lock, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
-const ResetPassword = ({ setView }) => {
+const ResetPassword = ({ setView, authCallbackError }) => {
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -15,31 +15,23 @@ const ResetPassword = ({ setView }) => {
     useEffect(() => {
         let cancelled = false;
 
-        async function prepareRecoverySession() {
-            try {
-                await completeAuthCallback(supabase);
-                if (cancelled) return;
+        async function checkSession() {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (cancelled) return;
 
-                const { data: { session } } = await supabase.auth.getSession();
-                if (cancelled) return;
-
-                if (session) {
-                    setSessionReady(true);
-                } else {
-                    setError('This reset link is invalid or has expired. Use Forgot Password to request a new one.');
-                }
-            } catch (err) {
-                if (!cancelled) {
-                    setError(err.message || 'Could not verify reset link.');
-                }
-            } finally {
-                if (!cancelled) setInitializing(false);
+            if (session) {
+                setSessionReady(true);
+            } else if (authCallbackError) {
+                setError(authCallbackError);
+            } else {
+                setError('This reset link is invalid or has expired. Request a new one from Forgot Password.');
             }
+            setInitializing(false);
         }
 
-        prepareRecoverySession();
+        checkSession();
         return () => { cancelled = true; };
-    }, []);
+    }, [authCallbackError]);
 
     const handleUpdatePassword = async (e) => {
         e.preventDefault();
@@ -64,7 +56,7 @@ const ResetPassword = ({ setView }) => {
             const { error: updateError } = await supabase.auth.updateUser({ password });
 
             if (updateError) throw updateError;
-            window.history.replaceState(null, '', `${window.location.pathname}#login`);
+            sanitizeAuthUrl('login');
             setSuccess(true);
             setTimeout(() => setView('app'), 3000);
         } catch (err) {
@@ -91,7 +83,7 @@ const ResetPassword = ({ setView }) => {
                     </div>
                     <h1 className="text-4xl font-black text-gray-900 dark:text-white tracking-tight">Reset Password</h1>
                     <p className="text-amber-700 dark:text-amber-400 mt-3 font-semibold text-sm uppercase tracking-widest">
-                        Set a new password — not the login page
+                        Set a new password for your account
                     </p>
                 </div>
 
@@ -107,10 +99,13 @@ const ResetPassword = ({ setView }) => {
                     </div>
                 ) : !sessionReady ? (
                     <div className="text-center space-y-6">
-                        <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-2xl text-red-600 dark:text-red-400 text-sm font-bold flex items-start gap-2">
+                        <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-2xl text-red-600 dark:text-red-400 text-sm font-bold flex items-start gap-2 text-left">
                             <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
                             <span>{error || 'Invalid reset link.'}</span>
                         </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                            Request a new reset email after deploying the latest app — old links may have the wrong redirect URL.
+                        </p>
                         <button
                             type="button"
                             onClick={() => setView('forgot-password')}

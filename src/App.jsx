@@ -20,6 +20,7 @@ import {
     isSignupConfirmCallback,
     isAuthCallbackUrl,
     clearAuthParamsFromUrl,
+    getAuthRedirectUrl,
 } from './lib/authRedirect';
 import {
     LayoutDashboard,
@@ -46,6 +47,7 @@ const App = () => {
     const [session, setSession] = useState(null);
     const [profile, setProfile] = useState(null);
     const [authLoading, setAuthLoading] = useState(true);
+    const [authCallbackError, setAuthCallbackError] = useState(null);
     const getInitialView = () => {
         if (isRecoveryCallback()) return 'reset-password';
         if (isSignupConfirmCallback()) return 'confirm-email';
@@ -104,16 +106,13 @@ const App = () => {
             if (!mounted) return;
 
             setSession(session);
+            setAuthCallbackError(callbackResult.error || null);
 
-            if (callbackResult.error) {
-                if (callbackResult.kind === 'recovery' || isRecoveryCallback()) {
-                    setView('reset-password');
-                }
-            } else if (callbackResult.kind === 'recovery' || isRecoveryCallback()) {
+            if (callbackResult.error || callbackResult.kind === 'recovery' || isRecoveryCallback()) {
                 setView('reset-password');
             } else if (callbackResult.kind === 'signup' || callbackResult.kind === 'email' || isSignupConfirmCallback()) {
                 setView('confirm-email');
-                clearAuthParamsFromUrl();
+                clearAuthParamsFromUrl('confirm-email');
             } else if (session) {
                 setView('app');
             }
@@ -137,11 +136,11 @@ const App = () => {
 
             if (session) {
                 fetchProfile(session.user.id);
-                if (isRecoveryCallback()) {
+                if (isRecoveryCallback() || window.location.hash.includes('reset-password')) {
                     setView('reset-password');
                 } else if (isSignupConfirmCallback()) {
                     setView('confirm-email');
-                    clearAuthParamsFromUrl();
+                    clearAuthParamsFromUrl('confirm-email');
                 } else {
                     setView('app');
                 }
@@ -322,7 +321,7 @@ const App = () => {
                 password: tempPassword,
                 options: {
                     data: { full_name: newUserName, performer_name: newUserName },
-                    emailRedirectTo: `${window.location.origin}/#confirm-email`,
+                    emailRedirectTo: getAuthRedirectUrl('confirm-email'),
                 },
             });
 
@@ -437,7 +436,7 @@ const App = () => {
     }
 
     if (view === 'reset-password') {
-        return <ResetPassword setView={setView} />;
+        return <ResetPassword setView={setView} authCallbackError={authCallbackError} />;
     }
 
     if (view === 'confirm-email') {

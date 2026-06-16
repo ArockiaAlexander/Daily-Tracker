@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getAuthRedirectUrl } from '../lib/authRedirect';
 import { supabase } from '../lib/supabase';
 import { Lock, Loader2, CheckCircle2, Search } from 'lucide-react';
 
@@ -55,7 +56,7 @@ const AdminResetUserPassword = ({ profile, allProfiles, onClose, onPasswordReset
             console.log(`🔐 Admin Password Reset: ${profile?.performer_name} (${profile?.role}) is resetting password for ${selectedUser?.performer_name}`);
 
             const { error: resetError } = await supabase.auth.resetPasswordForEmail(targetEmail, {
-                redirectTo: `${window.location.origin}/#reset-password`,
+                redirectTo: getAuthRedirectUrl('reset-password'),
             });
 
             if (resetError) {
