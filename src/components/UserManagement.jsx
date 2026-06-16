@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import Toast from './Toast';
 import { Users, Plus, Trash2, Edit2, Search, Shield } from 'lucide-react';
 
-export default function UserManagement() {
+export default function UserManagement({ currentUserRole }) {
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -33,12 +33,14 @@ export default function UserManagement() {
     setFilteredUsers(filtered);
   }, [searchTerm, users]);
 
+  const isAdmin = currentUserRole === 'super_admin' || currentUserRole === 'general_manager';
+
   const fetchUsers = async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, performer_name, role, team_id, client_id')
+        .select('id, performer_name, role, team_id, client_id, email')
         .order('performer_name');
 
       if (error) throw error;
@@ -67,6 +69,10 @@ export default function UserManagement() {
   };
 
   const handleUpdateRole = async (userId) => {
+    if (!isAdmin) {
+      showToast('Access denied', 'error');
+      return;
+    }
     if (!editingRole) {
       showToast('Select a role', 'error');
       return;
@@ -93,6 +99,10 @@ export default function UserManagement() {
   };
 
   const handleUpdateTeam = async (userId) => {
+    if (!isAdmin) {
+      showToast('Access denied', 'error');
+      return;
+    }
     try {
       setLoading(true);
       const { error } = await supabase
@@ -114,6 +124,10 @@ export default function UserManagement() {
   };
 
   const handleDeleteUser = async (userId) => {
+    if (!isAdmin) {
+      showToast('Access denied', 'error');
+      return;
+    }
     if (!window.confirm('Are you sure? This will soft-delete the user.')) {
       return;
     }

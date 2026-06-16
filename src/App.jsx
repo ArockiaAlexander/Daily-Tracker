@@ -15,6 +15,13 @@ import AdminResetUserPassword from './components/AdminResetUserPassword';
 import AdminUserRow from './components/AdminUserRow';
 import { supabase } from './lib/supabase';
 import {
+    completeAuthCallback,
+    isRecoveryCallback,
+    isSignupConfirmCallback,
+    isAuthCallbackUrl,
+    clearAuthParamsFromUrl,
+} from './lib/authRedirect';
+import {
     LayoutDashboard,
     ClipboardList,
     RefreshCw,
@@ -39,7 +46,19 @@ const App = () => {
     const [session, setSession] = useState(null);
     const [profile, setProfile] = useState(null);
     const [authLoading, setAuthLoading] = useState(true);
-    const [view, setView] = useState('landing'); // 'landing', 'login', 'signup', 'forgot-password', 'reset-password', 'app'
+    const getInitialView = () => {
+        if (isRecoveryCallback()) return 'reset-password';
+        if (isSignupConfirmCallback()) return 'confirm-email';
+        const hash = window.location.hash.slice(1);
+        if (hash === 'confirm-email' || hash.startsWith('confirm-email')) return 'confirm-email';
+        if (hash === 'signup' || hash.startsWith('signup')) return 'signup';
+        if (hash === 'landing') return 'landing';
+        if (hash === 'login') return 'login';
+        if (hash === 'forgot-password') return 'forgot-password';
+        if (hash === 'reset-password' || hash.startsWith('reset-password')) return 'reset-password';
+        return 'landing';
+    };
+    const [view, setView] = useState(getInitialView); // 'landing', 'login', 'signup', 'forgot-password', 'reset-password', 'app'
 
     // ── App State ──
     const getTodayISO = () => new Date().toISOString().slice(0, 10);
@@ -76,46 +95,93 @@ const App = () => {
 
     // ── Auth Effects ──
     useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
+        let mounted = true;
+
+        async function bootstrapAuth() {
+            const callbackResult = await completeAuthCallback(supabase);
+
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!mounted) return;
+
             setSession(session);
+
+            if (callbackResult.error) {
+                if (callbackResult.kind === 'recovery' || isRecoveryCallback()) {
+                    setView('reset-password');
+                }
+            } else if (callbackResult.kind === 'recovery' || isRecoveryCallback()) {
+                setView('reset-password');
+            } else if (callbackResult.kind === 'signup' || callbackResult.kind === 'email' || isSignupConfirmCallback()) {
+                setView('confirm-email');
+                clearAuthParamsFromUrl();
+            } else if (session) {
+                setView('app');
+            }
+
             if (session) fetchProfile(session.user.id);
             setAuthLoading(false);
-        });
+        }
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        bootstrapAuth();
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            if (!mounted) return;
+
             setSession(session);
+
+            if (event === 'PASSWORD_RECOVERY' || isRecoveryCallback()) {
+                setView('reset-password');
+                if (session) fetchProfile(session.user.id);
+                return;
+            }
+
             if (session) {
                 fetchProfile(session.user.id);
-                const hash = window.location.hash;
-                if (hash && hash.includes('access_token') && hash.includes('type=recovery')) {
+                if (isRecoveryCallback()) {
                     setView('reset-password');
+                } else if (isSignupConfirmCallback()) {
+                    setView('confirm-email');
+                    clearAuthParamsFromUrl();
                 } else {
                     setView('app');
                 }
             } else {
                 setProfile(null);
-                const hash = window.location.hash;
-                if (hash === '#signup') {
-                    setView('signup');
-                } else if (hash === '#landing') {
-                    setView('landing');
+                if (isRecoveryCallback()) {
+                    setView('reset-password');
+                } else if (isAuthCallbackUrl()) {
+                    return;
                 } else {
-                    setView('login');
+                    setView((current) => {
+                        if (current === 'reset-password' || current === 'confirm-email') return current;
+                        const hash = window.location.hash;
+                        if (hash === '#signup') return 'signup';
+                        if (hash === '#landing') return 'landing';
+                        if (hash === '#forgot-password') return 'forgot-password';
+                        return 'login';
+                    });
                 }
             }
         });
 
-        return () => subscription.unsubscribe();
+        return () => {
+            mounted = false;
+            subscription.unsubscribe();
+        };
     }, []);
 
     const fetchProfile = async (uid) => {
         try {
             const { data, error } = await supabase.from('profiles').select('*').eq('id', uid).single();
             if (error) throw error;
+            const { data: { session: currentSession } } = await supabase.auth.getSession();
+            if (currentSession?.user?.id !== uid) return;
             setProfile(data);
             if (data.performer_name) setPerformerName(data.performer_name);
         } catch (error) {
             console.error('Error fetching profile:', error.message);
+            const { data: { session: currentSession } } = await supabase.auth.getSession();
+            if (currentSession?.user?.id === uid) setProfile(null);
         }
     };
 
@@ -131,9 +197,9 @@ const App = () => {
     }, [darkMode]);
 
     useEffect(() => {
-        if (session) {
+        if (session && profile) {
             fetchFromSupabase();
-            if (profile?.role === 'super_admin' || profile?.role === 'general_manager') fetchAllProfiles();
+            if (profile.role === 'super_admin' || profile.role === 'general_manager') fetchAllProfiles();
         }
     }, [session, profile]);
 
@@ -145,8 +211,13 @@ const App = () => {
             let query = supabase.from('status_entries').select('*').order('date', { ascending: false });
             if (profile?.role === 'performer') {
                 query = query.eq('user_id', session.user.id);
-            } else if (profile?.role === 'team_lead') {
-                query = query.eq('client_id', profile.client_id);
+            } else if (profile?.role === 'team_lead' && profile.team_id) {
+                const { data: teamMembers } = await supabase
+                    .from('profiles')
+                    .select('id')
+                    .eq('team_id', profile.team_id);
+                const memberIds = (teamMembers || []).map((m) => m.id);
+                if (memberIds.length > 0) query = query.in('user_id', memberIds);
             }
             const { data, error } = await query;
             if (error) throw error;
@@ -243,32 +314,43 @@ const App = () => {
         }
 
         try {
-            // Create user via sign up (they'll receive confirmation email)
+            const { data: { session: adminSession } } = await supabase.auth.getSession();
+            const tempPassword = `${Math.random().toString(36).slice(-10)}A1!`;
+
             const { data: authData, error: authError } = await supabase.auth.signUp({
                 email: newUserEmail,
-                password: Math.random().toString(36).slice(-12), // Temporary password
+                password: tempPassword,
+                options: {
+                    data: { full_name: newUserName, performer_name: newUserName },
+                    emailRedirectTo: `${window.location.origin}/#confirm-email`,
+                },
             });
 
             if (authError) throw authError;
+            if (!authData?.user?.id) throw new Error('User creation failed — no user id returned');
 
-            // Wait a moment for auth user to be created
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            // Create profile entry with assigned role
-            const { error: profileError } = await supabase
-                .from('profiles')
-                .insert([{
-                    id: authData.user.id,
-                    performer_name: newUserName,
-                    role: newUserRole,
-                    client_id: 'DEFAULT_CLIENT'
-                }]);
-
-            if (profileError && !profileError.message.includes('duplicate')) {
-                throw profileError;
+            // signUp can replace the admin session; restore it before profile updates
+            const { data: { session: postSignUpSession } } = await supabase.auth.getSession();
+            if (adminSession && postSignUpSession?.user?.id !== adminSession.user.id) {
+                await supabase.auth.setSession({
+                    access_token: adminSession.access_token,
+                    refresh_token: adminSession.refresh_token,
+                });
             }
 
-            setToastMessage(`✅ User "${newUserName}" created with ${newUserRole} role. Confirmation email sent.`);
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .update({
+                    performer_name: newUserName,
+                    role: newUserRole,
+                    client_id: 'DEFAULT_CLIENT',
+                    email: newUserEmail,
+                })
+                .eq('id', authData.user.id);
+
+            if (profileError) throw profileError;
+
+            setToastMessage(`✅ User "${newUserName}" created with ${newUserRole} role. Confirmation email sent to ${newUserEmail}.`);
             setShowToast(true);
             setShowAddUserModal(false);
             setNewUserEmail('');
@@ -354,12 +436,64 @@ const App = () => {
         );
     }
 
+    if (view === 'reset-password') {
+        return <ResetPassword setView={setView} />;
+    }
+
+    if (view === 'confirm-email') {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
+                <div className="max-w-md w-full bg-white dark:bg-gray-900 rounded-3xl shadow-2xl p-10 border-2 border-green-200 dark:border-green-900/50 text-center">
+                    <div className="w-20 h-20 bg-green-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                        <ShieldCheck className="text-white w-10 h-10" />
+                    </div>
+                    <h1 className="text-3xl font-black text-gray-900 dark:text-white mb-3">Email Confirmed</h1>
+                    <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">
+                        Your signup is verified. You can now use the tracker with your email and password.
+                    </p>
+                    <button
+                        onClick={() => setView(session ? 'app' : 'login')}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-4 rounded-2xl uppercase tracking-widest text-sm"
+                    >
+                        {session ? 'Continue to App' : 'Go to Login'}
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     if (!session) {
         if (view === 'landing') return <LandingPage onGetStarted={() => setView('login')} />;
         if (view === 'signup') return <Signup setView={setView} />;
         if (view === 'forgot-password') return <ForgotPassword setView={setView} />;
-        if (view === 'reset-password') return <ResetPassword setView={setView} />;
         return <Login setView={setView} />;
+    }
+
+    if (view === 'signup') {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
+                <div className="max-w-md w-full bg-white dark:bg-gray-900 rounded-3xl shadow-2xl p-10 border border-gray-100 dark:border-gray-800 text-center">
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-3">Already signed in</h2>
+                    <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
+                        Log out first to register a new account, or continue to the app.
+                    </p>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={() => setView('app')}
+                            className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl text-sm"
+                        >
+                            Go to App
+                        </button>
+                        <button
+                            onClick={handleLogout}
+                            className="flex-1 py-3 bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-bold rounded-xl text-sm"
+                        >
+                            Log out
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     const displayedEntries = filterDate ? statusEntries.filter(e => e.date === filterDate) : statusEntries;
@@ -494,7 +628,7 @@ const App = () => {
 
                             {/* USER MANAGEMENT SECTION */}
                             {adminSubTab === 'users' && (profile?.role === 'super_admin' || profile?.role === 'general_manager') ? (
-                                <UserManagement />
+                                <UserManagement currentUserRole={profile?.role} />
                             ) : adminSubTab === 'users' ? (
                                 <>
                                     {/* Search Bar */}

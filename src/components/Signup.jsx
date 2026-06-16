@@ -22,8 +22,10 @@ const Signup = ({ setView }) => {
                 options: {
                     data: {
                         full_name: fullName,
-                    }
-                }
+                        performer_name: fullName,
+                    },
+                    emailRedirectTo: `${window.location.origin}/#confirm-email`,
+                },
             });
 
             if (signupError) throw signupError;

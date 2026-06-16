@@ -4,12 +4,11 @@ import { Lock, Loader2, CheckCircle2, Search } from 'lucide-react';
 
 const AdminResetUserPassword = ({ profile, allProfiles, onClose, onPasswordReset }) => {
     const [selectedUserId, setSelectedUserId] = useState('');
-    const [newPassword, setNewPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(false);
+    const [resetEmail, setResetEmail] = useState('');
     const [successMessage, setSuccessMessage] = useState('');
 
     // Filter profiles for dropdown
@@ -30,18 +29,17 @@ const AdminResetUserPassword = ({ profile, allProfiles, onClose, onPasswordReset
             return;
         }
 
-        if (!newPassword || !confirmPassword) {
-            setError('Password fields are required');
+        const selectedUser = allProfiles.find((p) => p.id === selectedUserId);
+        const targetEmail = selectedUser?.email || resetEmail;
+
+        if (!targetEmail) {
+            setError('Email is required — enter the user\'s email address below');
             return;
         }
 
-        if (newPassword !== confirmPassword) {
-            setError("Passwords don't match");
-            return;
-        }
-
-        if (newPassword.length < 6) {
-            setError('Password must be at least 6 characters');
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(targetEmail)) {
+            setError('Invalid email address');
             return;
         }
 
@@ -54,17 +52,10 @@ const AdminResetUserPassword = ({ profile, allProfiles, onClose, onPasswordReset
         setLoading(true);
 
         try {
-            // Use Supabase admin API to reset user password
-            // Since we can't access the admin API directly from client, we'll use the updateUser approach
-            const selectedUser = allProfiles.find((p) => p.id === selectedUserId);
-
-            // Log action for audit
             console.log(`🔐 Admin Password Reset: ${profile?.performer_name} (${profile?.role}) is resetting password for ${selectedUser?.performer_name}`);
 
-            // For now, we'll create a temporary password reset token
-            // In production, you'd want to use Supabase Admin API or a backend function
-            const { error: resetError } = await supabase.auth.resetPasswordForEmail(selectedUser?.email || '', {
-                redirectTo: `${window.location.origin}/reset-password`,
+            const { error: resetError } = await supabase.auth.resetPasswordForEmail(targetEmail, {
+                redirectTo: `${window.location.origin}/#reset-password`,
             });
 
             if (resetError) {
@@ -74,16 +65,15 @@ const AdminResetUserPassword = ({ profile, allProfiles, onClose, onPasswordReset
 
             setSuccess(true);
             setSuccessMessage(
-                `Password reset link sent to ${selectedUser?.performer_name}. They must verify via email to complete the reset.`
+                `Password reset link sent to ${targetEmail}. They must verify via email to complete the reset.`
             );
+            const resetUserId = selectedUserId;
             setSelectedUserId('');
-            setNewPassword('');
-            setConfirmPassword('');
+            setResetEmail('');
             setSearchQuery('');
 
-            // Notify parent component
             if (onPasswordReset) {
-                onPasswordReset(selectedUserId);
+                onPasswordReset(resetUserId);
             }
 
             // Close after 3 seconds
@@ -209,41 +199,30 @@ const AdminResetUserPassword = ({ profile, allProfiles, onClose, onPasswordReset
 
                     {selectedUserId && (
                         <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-sm text-blue-700 dark:text-blue-300">
-                            ℹ️ A password reset email will be sent to <strong>{allProfiles.find((p) => p.id === selectedUserId)?.performer_name}</strong>
+                            ℹ️ A password reset email will be sent to{' '}
+                            <strong>{allProfiles.find((p) => p.id === selectedUserId)?.performer_name}</strong>
                         </div>
                     )}
 
-                    {/* New Password (Optional - for display only) */}
                     <div>
                         <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-2">
-                            Temporary Password (Min 6 characters)
+                            User Email {allProfiles.find((p) => p.id === selectedUserId)?.email ? '(from profile)' : '(required)'}
                         </label>
                         <input
-                            type="password"
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition dark:text-white"
-                            placeholder="Optional - or user resets via email"
-                            minLength={6}
+                            type="email"
+                            value={
+                                selectedUserId
+                                    ? (allProfiles.find((p) => p.id === selectedUserId)?.email || resetEmail)
+                                    : resetEmail
+                            }
+                            onChange={(e) => setResetEmail(e.target.value)}
+                            readOnly={!!allProfiles.find((p) => p.id === selectedUserId)?.email}
+                            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition dark:text-white read-only:opacity-70"
+                            placeholder="user@yourdomain.com"
+                            required
                         />
                     </div>
 
-                    {/* Confirm Password */}
-                    <div>
-                        <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-400 mb-2">
-                            Confirm Password
-                        </label>
-                        <input
-                            type="password"
-                            value={confirmPassword}
-                            onChange={(e) => setConfirmPassword(e.target.value)}
-                            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition dark:text-white"
-                            placeholder="Optional - or user resets via email"
-                            minLength={6}
-                        />
-                    </div>
-
-                    {/* Buttons */}
                     <div className="flex gap-3 pt-4">
                         <button
                             type="button"
@@ -259,7 +238,7 @@ const AdminResetUserPassword = ({ profile, allProfiles, onClose, onPasswordReset
                             className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition disabled:opacity-50 flex items-center justify-center gap-2"
                         >
                             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                            {loading ? 'Resetting...' : 'Send Reset Link'}
+                            {loading ? 'Sending...' : 'Send Reset Link'}
                         </button>
                     </div>
                 </form>
