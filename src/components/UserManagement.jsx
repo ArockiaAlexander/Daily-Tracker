@@ -33,14 +33,14 @@ export default function UserManagement({ currentUserRole }) {
     setFilteredUsers(filtered);
   }, [searchTerm, users]);
 
-  const isAdmin = currentUserRole === 'super_admin' || currentUserRole === 'general_manager';
+  const isAdmin = ['super_admin', 'general_manager', 'assistant_manager'].includes(currentUserRole);
 
   const fetchUsers = async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, performer_name, role, team_id, client_id, email')
+        .select('id, performer_name, role, team_id, client_id, client_ref, sub_division, email')
         .order('performer_name');
 
       if (error) throw error;
@@ -156,6 +156,7 @@ export default function UserManagement({ currentUserRole }) {
       'super_admin': 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200',
       'general_manager': 'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200',
       'assistant_manager': 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200',
+      'group_lead': 'bg-pink-100 dark:bg-pink-900/50 text-pink-800 dark:text-pink-200',
       'team_lead': 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200',
       'performer': 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200',
       'admin': 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200',
@@ -169,6 +170,7 @@ export default function UserManagement({ currentUserRole }) {
     { value: 'super_admin', label: '👑 Super Admin', description: 'Full system control' },
     { value: 'general_manager', label: '📊 General Manager', description: 'Organization overview' },
     { value: 'assistant_manager', label: '📈 Assistant Manager', description: 'Multi-team oversight' },
+    { value: 'group_lead', label: '👥 Group Lead', description: 'Oversight of performers in group' },
     { value: 'team_lead', label: '👥 Team Lead', description: 'Team management' },
     { value: 'performer', label: '👤 Performer', description: 'Individual contributor' },
   ];
@@ -218,6 +220,7 @@ export default function UserManagement({ currentUserRole }) {
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Name</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Current Role</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Team</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Client / Sub-div</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Actions</th>
                 </tr>
               </thead>
@@ -236,6 +239,20 @@ export default function UserManagement({ currentUserRole }) {
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                         {teams.find(t => t.id === user.team_id)?.name || '-'}
                       </td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                        {user.client_id && user.client_id !== 'DEFAULT_CLIENT' ? (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-55 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 mr-1.5 uppercase">
+                            {user.client_id}
+                          </span>
+                        ) : null}
+                        {user.sub_division ? (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">
+                            {user.sub_division}
+                          </span>
+                        ) : (
+                          user.client_id && user.client_id !== 'DEFAULT_CLIENT' ? '' : '-'
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <button
                           onClick={() => {
@@ -253,7 +270,7 @@ export default function UserManagement({ currentUserRole }) {
                     {/* Expanded Details */}
                     {selectedUser === user.id && (
                       <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-700/30">
-                        <td colSpan="4" className="px-4 py-4">
+                        <td colSpan="5" className="px-4 py-4">
                           <div className="space-y-4">
                             {/* Role Selection */}
                             <div>
@@ -340,6 +357,7 @@ export default function UserManagement({ currentUserRole }) {
               <li><strong>Super Admin:</strong> Full system control, manage all users and workflows</li>
               <li><strong>General Manager:</strong> View all employees, access organization analytics</li>
               <li><strong>Assistant Manager:</strong> Manage multiple teams within their scope</li>
+              <li><strong>Group Lead:</strong> Manage assigned performers across client sub-divisions</li>
               <li><strong>Team Lead:</strong> Manage own team members, view team performance</li>
               <li><strong>Performer:</strong> Individual contributor, submit own entries</li>
             </ul>

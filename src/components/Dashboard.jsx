@@ -36,7 +36,7 @@ const Dashboard = ({ entries, userProfile }) => {
     const rawRole = userProfile?.role || 'performer';
     const isAdmin = ['admin', 'super_admin', 'general_manager'].includes(rawRole);
     const isManager = ['manager', 'general_manager', 'assistant_manager', 'super_admin'].includes(rawRole);
-    const isLead = ['lead', 'team_lead'].includes(rawRole);
+    const isLead = ['lead', 'team_lead', 'group_lead'].includes(rawRole);
     const isPerformer = rawRole === 'performer';
     const role = rawRole;
 

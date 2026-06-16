@@ -26,8 +26,13 @@ export function aggregateDayMetrics(entries) {
     if (!entries.length) {
         return { avgTarget: 0, avgTime: 0, count: 0 };
     }
-    const avgTarget = entries.reduce((acc, e) => acc + Number(e.targetAchieved || 0), 0) / entries.length;
-    const avgTime = entries.reduce((acc, e) => acc + Number(e.timeAchieved || 0), 0) / entries.length;
+    const totalHours = entries.reduce((acc, e) => acc + Number(e.takenTime || 1), 0);
+    const avgTarget = totalHours > 0
+        ? entries.reduce((acc, e) => acc + Number(e.targetAchieved || 0) * Number(e.takenTime || 1), 0) / totalHours
+        : 0;
+    const avgTime = totalHours > 0
+        ? entries.reduce((acc, e) => acc + Number(e.timeAchieved || 0) * Number(e.takenTime || 1), 0) / totalHours
+        : 0;
     return {
         avgTarget: avgTarget.toFixed(2),
         avgTime: avgTime.toFixed(2),

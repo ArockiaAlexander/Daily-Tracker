@@ -18,8 +18,9 @@ const DailySummary = ({
 
     const role = profile?.role || 'performer';
     const isManager = ['super_admin', 'general_manager', 'assistant_manager'].includes(role);
-    const isTeamLead = role === 'team_lead';
+    const isTeamLead = role === 'team_lead' || role === 'group_lead';
     const isPerformer = role === 'performer';
+    const canToggleView = isManager || isTeamLead;
 
     const performerOptions = useMemo(() => {
         const names = [...new Set(accessibleProfiles.map((p) => p.performer_name).filter(Boolean))];
@@ -36,22 +37,13 @@ const DailySummary = ({
             return result.filter((e) => e.performerName === profile?.performer_name);
         }
 
-        if (isTeamLead) {
-            if (selectedPerformer !== 'all') {
-                result = result.filter((e) => e.performerName === selectedPerformer);
-            }
-            return result;
-        }
-
-        if (isManager) {
-            if (viewMode === 'individual' && selectedPerformer !== 'all') {
-                result = result.filter((e) => e.performerName === selectedPerformer);
-            }
-            return result;
+        // For all non-performer roles: filter by view mode and selected performer
+        if (viewMode === 'individual' && selectedPerformer !== 'all') {
+            result = result.filter((e) => e.performerName === selectedPerformer);
         }
 
         return result;
-    }, [entries, summaryDate, isPerformer, isTeamLead, isManager, viewMode, selectedPerformer, profile?.performer_name]);
+    }, [entries, summaryDate, isPerformer, viewMode, selectedPerformer, profile?.performer_name]);
 
     const { avgTarget, avgTime, count } = aggregateDayMetrics(dayEntries);
 
@@ -92,7 +84,7 @@ const DailySummary = ({
                     </div>
                 </div>
 
-                {isManager && (
+                {canToggleView && (
                     <div className="flex flex-col sm:flex-row gap-3">
                         <div className="flex rounded-xl bg-white dark:bg-gray-900 p-1 border border-gray-200 dark:border-gray-700">
                             <button
@@ -124,19 +116,6 @@ const DailySummary = ({
                         )}
                     </div>
                 )}
-
-                {isTeamLead && (
-                    <select
-                        value={selectedPerformer}
-                        onChange={(e) => setSelectedPerformer(e.target.value)}
-                        className="w-full text-xs font-bold p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-900 outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                        <option value="all">All teammates</option>
-                        {performerOptions.map((name) => (
-                            <option key={name} value={name}>{name}</option>
-                        ))}
-                    </select>
-                )}
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-6 shrink-0">
@@ -145,14 +124,19 @@ const DailySummary = ({
                     <span className={`text-3xl font-extrabold ${Number(avgTarget) >= 100 ? 'text-green-700 dark:text-green-400' : 'text-amber-600'}`}>
                         {count ? `${avgTarget}%` : '—'}
                     </span>
-                    <p className="text-[9px] text-gray-500 mt-1">{count} task{count !== 1 ? 's' : ''} logged</p>
+                    <p className="text-[9px] text-gray-500 mt-1">
+                        {count} task{count !== 1 ? 's' : ''} logged
+                        {canToggleView && viewMode === 'team' ? ` · ${new Set(dayEntries.map(e => e.performerName)).size} performer${new Set(dayEntries.map(e => e.performerName)).size !== 1 ? 's' : ''}` : ''}
+                    </p>
                 </div>
                 <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900">
                     <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Time Efficiency</p>
                     <span className="text-3xl font-extrabold text-indigo-700 dark:text-indigo-400">
                         {count ? `${avgTime}%` : '—'}
                     </span>
-                    <p className="text-[9px] text-gray-500 mt-1">Based on day entries</p>
+                    <p className="text-[9px] text-gray-500 mt-1">
+                        {viewMode === 'team' && canToggleView ? 'Weighted avg · Team' : 'Based on day entries'}
+                    </p>
                 </div>
             </div>
 
@@ -182,6 +166,18 @@ const DailySummary = ({
                                         <p className="text-[10px] text-gray-500 mt-1">
                                             Completed: {e.completedPages} · {e.takenTime}h taken
                                         </p>
+                                        <div className="flex flex-wrap gap-1 mt-1.5">
+                                            {e.client_id && e.client_id !== 'DEFAULT_CLIENT' && (
+                                                <span className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded text-[9px] font-black uppercase tracking-wider">
+                                                    {e.client_id}
+                                                </span>
+                                            )}
+                                            {e.sub_division && (
+                                                <span className="px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded text-[9px] font-black uppercase tracking-wider">
+                                                    {e.sub_division}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="text-right shrink-0">
                                         <p className={`font-black text-sm ${Number(e.targetAchieved) >= 100 ? 'text-green-600' : 'text-amber-500'}`}>

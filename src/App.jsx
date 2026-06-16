@@ -13,6 +13,7 @@ import UserManagement from './components/UserManagement';
 import ChangePassword from './components/ChangePassword';
 import AdminResetUserPassword from './components/AdminResetUserPassword';
 import AdminUserRow from './components/AdminUserRow';
+import ClientManagement from './components/ClientManagement';
 import { supabase } from './lib/supabase';
 import {
     completeAuthCallback,
@@ -76,6 +77,9 @@ const App = () => {
     const [showErrorModal, setShowErrorModal] = useState(false);
     const [activeTab, setActiveTab] = useState('form');
     const [isSyncing, setIsSyncing] = useState(false);
+    const [clients, setClients] = useState([]);
+    const [selectedClient, setSelectedClient] = useState('');
+    const [selectedSubDivision, setSelectedSubDivision] = useState('');
 
     // ── Admin State ──
     const [allProfiles, setAllProfiles] = useState([]);
@@ -187,7 +191,8 @@ const App = () => {
         if (session && profile) {
             fetchFromSupabase();
             fetchAccessibleProfiles();
-            if (profile.role === 'super_admin' || profile.role === 'general_manager') fetchAllProfiles();
+            fetchClients();
+            if (['super_admin', 'general_manager', 'assistant_manager'].includes(profile.role)) fetchAllProfiles();
         }
     }, [session, profile]);
 
@@ -206,6 +211,18 @@ const App = () => {
                     .eq('team_id', profile.team_id);
                 const memberIds = (teamMembers || []).map((m) => m.id);
                 if (memberIds.length > 0) query = query.in('user_id', memberIds);
+            } else if (profile?.role === 'group_lead' && profile.client_ref) {
+                let q = supabase
+                    .from('profiles')
+                    .select('id')
+                    .eq('client_ref', profile.client_ref);
+                if (profile.sub_division) {
+                    q = q.eq('sub_division', profile.sub_division);
+                }
+                const { data: groupMembers } = await q;
+                const memberIds = (groupMembers || []).map((m) => m.id);
+                memberIds.push(session.user.id); // Also show the lead's own entries
+                if (memberIds.length > 0) query = query.in('user_id', memberIds);
             }
             const { data, error } = await query;
             if (error) throw error;
@@ -218,7 +235,7 @@ const App = () => {
     };
 
     const fetchAllProfiles = async () => {
-        if (profile?.role !== 'super_admin' && profile?.role !== 'general_manager') return;
+        if (!['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role)) return;
         setIsAdminSyncing(true);
         try {
             const { data, error } = await supabase.from('profiles').select('*').order('performer_name', { ascending: true });
@@ -246,11 +263,37 @@ const App = () => {
                     .order('performer_name', { ascending: true });
                 if (error) throw error;
                 setAccessibleProfiles(data || []);
+            } else if (profile.role === 'group_lead' && profile.client_ref) {
+                let q = supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('client_ref', profile.client_ref);
+                if (profile.sub_division) {
+                    q = q.eq('sub_division', profile.sub_division);
+                }
+                const { data, error } = await q.order('performer_name', { ascending: true });
+                if (error) throw error;
+                setAccessibleProfiles(data || []);
             } else {
                 setAccessibleProfiles([]);
             }
         } catch (error) {
             console.error('Error fetching accessible profiles:', error.message);
+        }
+    };
+
+    const fetchClients = async () => {
+        if (!supabase || !session) return;
+        try {
+            const { data, error } = await supabase
+                .from('clients')
+                .select('*')
+                .eq('is_active', true)
+                .order('code', { ascending: true });
+            if (error) throw error;
+            setClients(data || []);
+        } catch (error) {
+            console.error('Error fetching active clients:', error.message);
         }
     };
 
@@ -261,6 +304,21 @@ const App = () => {
     };
 
     const canSelectPerformerOnForm = ['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role);
+
+    useEffect(() => {
+        if (!profile) return;
+        
+        if (!canSelectPerformerOnForm || performerName === profile.performer_name) {
+            setSelectedClient(profile.client_id || 'DEFAULT_CLIENT');
+            setSelectedSubDivision(profile.sub_division || '');
+        } else {
+            const selectedProf = accessibleProfiles.find(p => p.performer_name === performerName);
+            if (selectedProf) {
+                setSelectedClient(selectedProf.client_id || 'DEFAULT_CLIENT');
+                setSelectedSubDivision(selectedProf.sub_division || '');
+            }
+        }
+    }, [performerName, profile, accessibleProfiles, canSelectPerformerOnForm]);
 
     const handleUpdateUserRole = async (userId, newRole, clientId) => {
         // RBAC: Only super_admin and general_manager can update users
@@ -386,9 +444,20 @@ const App = () => {
         if (!supabase || !session) return;
         try {
             const entryWithAuth = {
-                ...newEntry,
+                id: newEntry.id,
+                date: newEntry.date,
+                performerName: newEntry.performerName,
+                titleName: newEntry.titleName,
+                completedPages: newEntry.completedPages,
+                taskType: newEntry.taskType,
+                estimatedTime: newEntry.estimatedTime,
+                takenTime: newEntry.takenTime,
+                timeAchieved: newEntry.timeAchieved,
+                targetAchieved: newEntry.targetAchieved,
+                status: newEntry.status,
                 user_id: session.user.id,
-                client_id: profile?.client_id || 'DEFAULT_CLIENT'
+                client_id: newEntry.client_id || 'DEFAULT_CLIENT',
+                sub_division: newEntry.sub_division || null
             };
             const { error } = await supabase.from('status_entries').insert([entryWithAuth]);
             if (error) throw error;
@@ -425,7 +494,9 @@ const App = () => {
             id: Date.now(), date: entryDate, performerName: performerName.trim(),
             titleName: titleName.trim(), completedPages: Number(completedPages), taskType,
             estimatedTime: Number(estimatedTime), takenTime: Number(takenTime),
-            timeAchieved: timeAchievedPercentage, targetAchieved: targetAchievedPercentage, status: achievementStatus
+            timeAchieved: timeAchievedPercentage, targetAchieved: targetAchievedPercentage, status: achievementStatus,
+            client_id: selectedClient || 'DEFAULT_CLIENT',
+            sub_division: selectedSubDivision || null
         };
         setStatusEntries(prev => [newEntry, ...prev]);
         await syncToSupabase(newEntry);
@@ -553,9 +624,9 @@ const App = () => {
                         <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                             <LayoutDashboard size={18} />Analytics
                         </button>
-                        {(profile?.role === 'super_admin' || profile?.role === 'general_manager') && (
-                            <button onClick={() => setActiveTab('super_admin')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'super_admin' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
-                                <Users size={18} />User Management
+                        {['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role) && (
+                            <button onClick={() => { setActiveTab('super_admin'); setAdminSubTab('users'); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'super_admin' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                                <Users size={18} />Administration
                             </button>
                         )}
                     </div>
@@ -611,6 +682,15 @@ const App = () => {
                                     👥 User Management
                                 </button>
                                 <button
+                                    onClick={() => setAdminSubTab('clients')}
+                                    className={`px-6 py-3 font-bold text-sm transition-all border-b-2 ${adminSubTab === 'clients'
+                                        ? 'border-purple-600 text-purple-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                                        }`}
+                                >
+                                    🏢 Client Management
+                                </button>
+                                <button
                                     onClick={() => setAdminSubTab('workflows')}
                                     className={`px-6 py-3 font-bold text-sm transition-all border-b-2 ${adminSubTab === 'workflows'
                                         ? 'border-purple-600 text-purple-600'
@@ -622,7 +702,7 @@ const App = () => {
                             </div>
 
                             {/* USER MANAGEMENT SECTION */}
-                            {adminSubTab === 'users' && (profile?.role === 'super_admin' || profile?.role === 'general_manager') ? (
+                            {adminSubTab === 'users' && ['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role) ? (
                                 <UserManagement currentUserRole={profile?.role} />
                             ) : adminSubTab === 'users' ? (
                                 <>
@@ -674,6 +754,14 @@ const App = () => {
                                     allProfiles={allProfiles}
                                     onRefresh={fetchAllProfiles}
                                 />
+                            ) : adminSubTab === 'clients' ? (
+                                <ClientManagement
+                                    supabase={supabase}
+                                    session={session}
+                                    profile={profile}
+                                    allProfiles={allProfiles}
+                                    onRefresh={fetchAllProfiles}
+                                />
                             ) : null}
 
                             {/* MODALS - Outside main conditional so always available */}
@@ -720,6 +808,7 @@ const App = () => {
                                                 >
                                                     <option value="performer">👤 Performer</option>
                                                     <option value="team_lead">👨‍💼 Team Lead</option>
+                                                    <option value="group_lead">👥 Group Lead</option>
                                                     <option value="assistant_manager">📊 Assistant Manager</option>
                                                     <option value="general_manager">🏢 General Manager</option>
                                                     <option value="super_admin">🔐 Super Admin</option>
@@ -843,6 +932,42 @@ const App = () => {
                                         <div>
                                             <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Date</label>
                                             <input type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" required />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div>
+                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Client</label>
+                                            {canSelectPerformerOnForm ? (
+                                                <select
+                                                    value={selectedClient}
+                                                    onChange={e => setSelectedClient(e.target.value)}
+                                                    className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E')] bg-[length:20px_20px] bg-[right_1rem_center] bg-no-repeat"
+                                                >
+                                                    <option value="DEFAULT_CLIENT">DEFAULT_CLIENT</option>
+                                                    {clients.map(c => (
+                                                        <option key={c.id} value={c.code}>{c.code}</option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <input type="text" value={selectedClient || 'DEFAULT_CLIENT'} readOnly className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-500 cursor-not-allowed font-medium uppercase" />
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Sub-division</label>
+                                            {canSelectPerformerOnForm ? (
+                                                <select
+                                                    value={selectedSubDivision}
+                                                    onChange={e => setSelectedSubDivision(e.target.value)}
+                                                    className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E')] bg-[length:20px_20px] bg-[right_1rem_center] bg-no-repeat pr-10"
+                                                >
+                                                    <option value="">None</option>
+                                                    <option value="PreEdit">PreEdit</option>
+                                                    <option value="Validation">Validation</option>
+                                                </select>
+                                            ) : (
+                                                <input type="text" value={selectedSubDivision || 'None'} readOnly className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-500 cursor-not-allowed font-medium" />
+                                            )}
                                         </div>
                                     </div>
 
