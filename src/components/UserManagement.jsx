@@ -11,6 +11,7 @@ export default function UserManagement({ currentUserRole }) {
   const [selectedUser, setSelectedUser] = useState(null);
   const [editingRole, setEditingRole] = useState(null);
   const [editingTeam, setEditingTeam] = useState(null);
+  const [editingSubDivision, setEditingSubDivision] = useState(null);
   const [teams, setTeams] = useState([]);
   const [toast, setToast] = useState(null);
 
@@ -111,16 +112,18 @@ export default function UserManagement({ currentUserRole }) {
       const { error } = await supabase
         .from('profiles')
         .update({ 
-          team_id: null, // Clear legacy team_id to avoid constraint error since clients and teams are merged
+          team_id: editingTeam || null,
           client_ref: editingTeam || null,
-          client_id: clientCode
+          client_id: clientCode,
+          sub_division: editingSubDivision || null
         })
         .eq('id', userId);
 
       if (error) throw error;
-      showToast('Client assignment updated', 'success');
+      showToast('Client and Sub-division updated', 'success');
       setSelectedUser(null);
       setEditingTeam(null);
+      setEditingSubDivision(null);
       fetchUsers();
     } catch (err) {
       console.error('Error updating client assignment:', err);
@@ -227,7 +230,7 @@ export default function UserManagement({ currentUserRole }) {
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Name</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Current Role</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Client (Team)</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Client / Sub-div</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Sub-division</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Actions</th>
                 </tr>
               </thead>
@@ -247,18 +250,11 @@ export default function UserManagement({ currentUserRole }) {
                         {teams.find(t => t.id === user.team_id || t.id === user.client_ref)?.code || '-'}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
-                        {user.client_id && user.client_id !== 'DEFAULT_CLIENT' ? (
-                          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-55 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 mr-1.5 uppercase">
-                            {user.client_id}
-                          </span>
-                        ) : null}
                         {user.sub_division ? (
                           <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">
                             {user.sub_division}
                           </span>
-                        ) : (
-                          user.client_id && user.client_id !== 'DEFAULT_CLIENT' ? '' : '-'
-                        )}
+                        ) : '-'}
                       </td>
                       <td className="px-4 py-3">
                         <button
@@ -266,6 +262,7 @@ export default function UserManagement({ currentUserRole }) {
                             setSelectedUser(user.id === selectedUser ? null : user.id);
                             setEditingRole(user.role);
                             setEditingTeam(user.client_ref);
+                            setEditingSubDivision(user.sub_division);
                           }}
                           className="px-3 py-1 text-sm bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 rounded hover:bg-blue-200 dark:hover:bg-blue-900 transition"
                         >
@@ -302,21 +299,38 @@ export default function UserManagement({ currentUserRole }) {
                               </div>
                             </div>
 
-                             {/* Team Selection */}
-                             <div>
-                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                 Assign to Client (Team)
-                               </label>
-                               <select
-                                 value={editingTeam || ''}
-                                 onChange={(e) => setEditingTeam(e.target.value || null)}
-                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                               >
-                                 <option value="">No Client (Unassigned)</option>
-                                 {teams.map(client => (
-                                   <option key={client.id} value={client.id}>{client.name} ({client.code})</option>
-                                 ))}
-                               </select>
+                             {/* Client & Sub-division Selection */}
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                               <div>
+                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                   Assign to Client (Team)
+                                 </label>
+                                 <select
+                                   value={editingTeam || ''}
+                                   onChange={(e) => setEditingTeam(e.target.value || null)}
+                                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                 >
+                                   <option value="">No Client (Unassigned)</option>
+                                   {teams.map(client => (
+                                     <option key={client.id} value={client.id}>{client.name} ({client.code})</option>
+                                   ))}
+                                 </select>
+                               </div>
+
+                               <div>
+                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                   Assign Sub-division
+                                 </label>
+                                 <select
+                                   value={editingSubDivision || ''}
+                                   onChange={(e) => setEditingSubDivision(e.target.value || null)}
+                                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                 >
+                                   <option value="">No Sub-division (None)</option>
+                                   <option value="PreEdit">PreEdit</option>
+                                   <option value="Validation">Validation</option>
+                                 </select>
+                               </div>
                              </div>
 
                             {/* Action Buttons */}
@@ -328,12 +342,12 @@ export default function UserManagement({ currentUserRole }) {
                               >
                                 {loading ? 'Updating...' : 'Update Role'}
                               </button>
-                              <button
+                               <button
                                 onClick={() => handleUpdateTeam(user.id)}
-                                disabled={loading || editingTeam === user.client_ref}
+                                disabled={loading || (editingTeam === user.client_ref && editingSubDivision === user.sub_division)}
                                 className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition disabled:opacity-50"
                               >
-                                {loading ? 'Updating...' : 'Update Client/Team'}
+                                {loading ? 'Updating...' : 'Update Client/Sub-div'}
                               </button>
                               <button
                                 onClick={() => handleDeleteUser(user.id)}
