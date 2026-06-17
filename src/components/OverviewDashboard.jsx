@@ -1,6 +1,26 @@
 import React from 'react';
+import { 
+    Chart as ChartJS, 
+    CategoryScale, 
+    LinearScale, 
+    BarElement, 
+    ArcElement, 
+    Title, 
+    Tooltip, 
+    Legend 
+} from 'chart.js';
 import { Bar, Pie } from 'react-chartjs-2';
 import { Target, Clock, Users, TrendingUp, Trophy } from 'lucide-react';
+
+ChartJS.register(
+    CategoryScale,
+    LinearScale,
+    BarElement,
+    ArcElement,
+    Title,
+    Tooltip,
+    Legend
+);
 
 const OverviewDashboard = ({
     filteredEntries,
