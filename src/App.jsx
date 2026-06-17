@@ -80,6 +80,7 @@ const App = () => {
     const [clients, setClients] = useState([]);
     const [selectedClient, setSelectedClient] = useState('');
     const [selectedSubDivision, setSelectedSubDivision] = useState('');
+    const [divisionTargets, setDivisionTargets] = useState([]);
 
     // ── Admin State ──
     const [allProfiles, setAllProfiles] = useState([]);
@@ -187,11 +188,32 @@ const App = () => {
         localStorage.setItem('cbpet_darkMode', darkMode);
     }, [darkMode]);
 
+    const fetchDivisionTargets = async () => {
+        if (!supabase || !session) return;
+        try {
+            const { data, error } = await supabase.from('division_targets').select('*');
+            if (error) throw error;
+            setDivisionTargets(data || []);
+            localStorage.setItem('cbpet_division_targets', JSON.stringify(data || []));
+        } catch (error) {
+            console.warn('Failed to fetch division targets from Supabase, using localStorage:', error.message);
+            const local = localStorage.getItem('cbpet_division_targets');
+            if (local) {
+                try {
+                    setDivisionTargets(JSON.parse(local));
+                } catch (err) {
+                    console.error('Failed to parse cached division targets:', err);
+                }
+            }
+        }
+    };
+
     useEffect(() => {
         if (session && profile) {
             fetchFromSupabase();
             fetchAccessibleProfiles();
             fetchClients();
+            fetchDivisionTargets();
             if (['super_admin', 'general_manager', 'assistant_manager'].includes(profile.role)) fetchAllProfiles();
         }
     }, [session, profile]);
@@ -475,11 +497,22 @@ const App = () => {
     const STANDARD_WORK_HOURS_PER_DAY = 8;
     const MOTIVATIONAL_MESSAGE = 'Keep Trying!';
 
+    const getTargetForEntry = (task, client, subDiv) => {
+        const custom = divisionTargets.find(t => 
+            t.client_id === client && 
+            t.sub_division === subDiv && 
+            t.task_type === task
+        );
+        if (custom) return Number(custom.target_value);
+        return standardTargets[task] || 0;
+    };
+
     const timeAchievedPercentage = estimatedTime > 0 && takenTime > 0
         ? ((estimatedTime / takenTime) * 100).toFixed(2) : 0;
 
-    const targetAchievedPercentage = taskType && standardTargets[taskType] > 0 && takenTime > 0
-        ? ((completedPages / ((standardTargets[taskType] / STANDARD_WORK_HOURS_PER_DAY) * takenTime)) * 100).toFixed(2) : 0;
+    const activeTargetVal = taskType ? getTargetForEntry(taskType, selectedClient, selectedSubDivision) : 0;
+    const targetAchievedPercentage = taskType && activeTargetVal > 0 && takenTime > 0
+        ? ((completedPages / ((activeTargetVal / STANDARD_WORK_HOURS_PER_DAY) * takenTime)) * 100).toFixed(2) : 0;
 
     // ── Handlers ──
     const handleSubmit = async (e) => {
@@ -638,7 +671,14 @@ const App = () => {
 
                 <div className="container mx-auto max-w-7xl bg-white dark:bg-gray-900 rounded-3xl p-6 md:p-10 shadow-xl border border-gray-100 dark:border-gray-800 min-h-[600px]">
                     {activeTab === 'dashboard' ? (
-                        <Dashboard entries={statusEntries} userProfile={profile} clients={clients} />
+                        <Dashboard 
+                            entries={statusEntries} 
+                            userProfile={profile} 
+                            clients={clients} 
+                            divisionTargets={divisionTargets} 
+                            onRefreshTargets={fetchDivisionTargets} 
+                            supabase={supabase}
+                        />
                     ) : activeTab === 'super_admin' ? (
                         <div className="space-y-8">
                             <div className="flex justify-between items-center">
