@@ -43,6 +43,12 @@ import {
 } from 'lucide-react';
 
 const App = () => {
+    // ── Hash Routing Constants ──
+    const HASH_TO_TAB = { form: 'form', analytics: 'dashboard', admin: 'super_admin' };
+    const TAB_TO_HASH = { form: 'form', dashboard: 'analytics', super_admin: 'admin' };
+    // App-tab hashes that should resolve to the app view when authenticated
+    const APP_HASHES = new Set(['form', 'analytics', 'admin']);
+
     // ── Auth & Session State ──
     const [session, setSession] = useState(null);
     const [profile, setProfile] = useState(null);
@@ -56,7 +62,13 @@ const App = () => {
         if (hash === 'landing') return 'landing';
         if (hash === 'login') return 'login';
         if (hash === 'forgot-password') return 'forgot-password';
+        // If the hash is an app-tab hash, treat it as 'login' initially (session check will upgrade to 'app')
+        if (APP_HASHES.has(hash)) return 'login';
         return 'landing';
+    };
+    const getInitialTab = () => {
+        const hash = window.location.hash.slice(1).split('#')[0];
+        return HASH_TO_TAB[hash] || 'form';
     };
     const [view, setView] = useState(getInitialView); // 'landing', 'login', 'signup', 'forgot-password', 'reset-password', 'app'
 
@@ -75,7 +87,7 @@ const App = () => {
     const [toastMessage, setToastMessage] = useState('');
     const [accessibleProfiles, setAccessibleProfiles] = useState([]);
     const [showErrorModal, setShowErrorModal] = useState(false);
-    const [activeTab, setActiveTab] = useState('form');
+    const [activeTab, setActiveTab] = useState(getInitialTab);
     const [isSyncing, setIsSyncing] = useState(false);
     const [clients, setClients] = useState([]);
     const [selectedClient, setSelectedClient] = useState('');
@@ -179,7 +191,33 @@ const App = () => {
 
     const handleLogout = async () => {
         await supabase.auth.signOut();
+        window.location.hash = '#login';
     };
+
+    // ── Hash Routing Effects ──
+    // Sync activeTab → URL hash when tab changes (only in app view)
+    useEffect(() => {
+        if (view === 'app') {
+            const desiredHash = '#' + (TAB_TO_HASH[activeTab] || 'form');
+            if (window.location.hash !== desiredHash) {
+                window.location.hash = desiredHash;
+            }
+        }
+    }, [activeTab, view]);
+
+    // Listen for browser back/forward → update activeTab from hash
+    useEffect(() => {
+        const onHashChange = () => {
+            if (view !== 'app') return;
+            const hash = window.location.hash.slice(1).split('#')[0];
+            const mapped = HASH_TO_TAB[hash];
+            if (mapped && mapped !== activeTab) {
+                setActiveTab(mapped);
+            }
+        };
+        window.addEventListener('hashchange', onHashChange);
+        return () => window.removeEventListener('hashchange', onHashChange);
+    }, [view, activeTab]);
 
     // ── App Data Effects ──
     useEffect(() => {
