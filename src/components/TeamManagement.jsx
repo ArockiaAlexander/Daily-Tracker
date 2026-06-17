@@ -279,7 +279,7 @@ export default function TeamManagement() {
               >
                 <option value="">No Manager (Unassigned)</option>
                 {users
-                  .filter(u => ['team_lead', 'assistant_manager'].includes(u.role))
+                  .filter(u => ['team_lead', 'manager'].includes(u.role))
                   .map(user => (
                     <option key={user.id} value={user.id}>
                       {user.performer_name} ({user.role})

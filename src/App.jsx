@@ -252,7 +252,7 @@ const App = () => {
             fetchAccessibleProfiles();
             fetchClients();
             fetchDivisionTargets();
-            if (['super_admin', 'general_manager', 'assistant_manager'].includes(profile.role)) fetchAllProfiles();
+            if (['super_admin', 'general_manager', 'manager'].includes(profile.role)) fetchAllProfiles();
         }
     }, [session, profile]);
 
@@ -295,7 +295,7 @@ const App = () => {
     };
 
     const fetchAllProfiles = async () => {
-        if (!['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role)) return;
+        if (!['super_admin', 'general_manager', 'manager'].includes(profile?.role)) return;
         setIsAdminSyncing(true);
         try {
             const { data, error } = await supabase.from('profiles').select('*').order('performer_name', { ascending: true });
@@ -311,7 +311,7 @@ const App = () => {
     const fetchAccessibleProfiles = async () => {
         if (!profile) return;
         try {
-            if (['super_admin', 'general_manager', 'assistant_manager'].includes(profile.role)) {
+            if (['super_admin', 'general_manager', 'manager'].includes(profile.role)) {
                 const { data, error } = await supabase.from('profiles').select('*').order('performer_name', { ascending: true });
                 if (error) throw error;
                 setAccessibleProfiles(data || []);
@@ -359,10 +359,10 @@ const App = () => {
 
     const canDeleteEntry = (entry) => {
         if (!session || !profile) return false;
-        return ['super_admin', 'general_manager', 'assistant_manager'].includes(profile.role);
+        return ['super_admin', 'general_manager', 'manager'].includes(profile.role);
     };
 
-    const canSelectPerformerOnForm = ['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role);
+    const canSelectPerformerOnForm = ['super_admin', 'general_manager', 'manager'].includes(profile?.role);
 
     useEffect(() => {
         if (!profile) return;
@@ -575,7 +575,7 @@ const App = () => {
     };
 
     const handleDeleteEntry = async (id) => {
-        if (!['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role)) {
+        if (!['super_admin', 'general_manager', 'manager'].includes(profile?.role)) {
             setToastMessage('❌ Access Denied: Only managers can delete entries');
             setShowToast(true);
             return;
@@ -699,7 +699,7 @@ const App = () => {
                         <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                             <LayoutDashboard size={18} />Analytics
                         </button>
-                        {['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role) && (
+                        {['super_admin', 'general_manager', 'manager'].includes(profile?.role) && (
                             <button onClick={() => { setActiveTab('super_admin'); setAdminSubTab('users'); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'super_admin' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                                 <Users size={18} />Administration
                             </button>
@@ -784,7 +784,7 @@ const App = () => {
                             </div>
 
                             {/* USER MANAGEMENT SECTION */}
-                            {adminSubTab === 'users' && ['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role) ? (
+                            {adminSubTab === 'users' && ['super_admin', 'general_manager', 'manager'].includes(profile?.role) ? (
                                 <UserManagement currentUserRole={profile?.role} />
                             ) : adminSubTab === 'users' ? (
                                 <>
@@ -891,7 +891,7 @@ const App = () => {
                                                     <option value="performer">👤 Performer</option>
                                                     <option value="team_lead">👨‍💼 Team Lead</option>
                                                     <option value="group_lead">👥 Group Lead</option>
-                                                    <option value="assistant_manager">📊 Assistant Manager</option>
+                                                    <option value="manager">📊 Manager</option>
                                                     <option value="general_manager">🏢 General Manager</option>
                                                     <option value="super_admin">🔐 Super Admin</option>
                                                 </select>

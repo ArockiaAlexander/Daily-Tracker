@@ -17,7 +17,7 @@ const DailySummary = ({
     const [selectedPerformer, setSelectedPerformer] = useState('all');
 
     const role = profile?.role || 'performer';
-    const isManager = ['super_admin', 'general_manager', 'assistant_manager'].includes(role);
+    const isManager = ['super_admin', 'general_manager', 'manager'].includes(role);
     const isTeamLead = role === 'team_lead' || role === 'group_lead';
     const isPerformer = role === 'performer';
     const canToggleView = isManager || isTeamLead;

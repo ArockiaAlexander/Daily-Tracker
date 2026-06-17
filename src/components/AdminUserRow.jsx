@@ -35,7 +35,8 @@ const AdminUserRow = ({ user, onUpdate, onDelete, isSelf, currentUserRole }) => 
             return [
                 { value: 'super_admin', label: 'Super Admin' },
                 { value: 'general_manager', label: 'General Manager' },
-                { value: 'assistant_manager', label: 'Assistant Manager' },
+                { value: 'manager', label: 'Manager' },
+                { value: 'group_lead', label: 'Group Lead' },
                 { value: 'team_lead', label: 'Team Lead' },
                 { value: 'performer', label: 'Performer' }
             ];

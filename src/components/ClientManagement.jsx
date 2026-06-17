@@ -38,7 +38,7 @@ export default function ClientManagement({ session, profile, allProfiles, onRefr
         setTimeout(() => setToast(null), 3000);
     };
 
-    const isAuthorized = ['super_admin', 'general_manager', 'assistant_manager'].includes(profile?.role);
+    const isAuthorized = ['super_admin', 'general_manager', 'manager'].includes(profile?.role);
 
     useEffect(() => {
         fetchClients();

@@ -28,7 +28,7 @@ const Dashboard = ({
     const [selectedClient, setSelectedClient] = useState('all');
     const [viewMode, setViewMode] = useState('team');
     const [groupBy, setGroupBy] = useState(() => {
-        if (['manager', 'general_manager', 'assistant_manager', 'super_admin'].includes(userProfile?.role)) return 'client';
+        if (['manager', 'general_manager', 'super_admin'].includes(userProfile?.role)) return 'client';
         if (['lead', 'team_lead', 'group_lead'].includes(userProfile?.role)) return 'performer';
         return 'task_type';
     });
@@ -39,7 +39,7 @@ const Dashboard = ({
     // Normalize roles
     const rawRole = userProfile?.role || 'performer';
     const isAdmin = ['admin', 'super_admin', 'general_manager'].includes(rawRole);
-    const isManager = ['manager', 'general_manager', 'assistant_manager', 'super_admin'].includes(rawRole);
+    const isManager = ['manager', 'general_manager', 'super_admin'].includes(rawRole);
     const isLead = ['lead', 'team_lead', 'group_lead'].includes(rawRole);
     const isPerformer = rawRole === 'performer';
     const role = rawRole;
@@ -85,15 +85,6 @@ const Dashboard = ({
         
         return result;
     }, [entries, selectedPerformer, selectedClient, isManager, viewMode, userProfile]);
-
-    if (!entries || entries.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center py-20 bg-gray-50/50 dark:bg-gray-800/30 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
-                <Calendar className="w-12 h-12 text-gray-300 mb-4" />
-                <p className="text-xs font-black uppercase tracking-widest text-gray-400">System Ready • No Analytical Data</p>
-            </div>
-        );
-    }
 
     // ── Stats Calculation ──
     const totalEntries = filteredEntries.length;
@@ -192,6 +183,16 @@ const Dashboard = ({
         }]
     };
 
+    // ── Early return: no data (placed AFTER all hooks to avoid React error #310) ──
+    if (!entries || entries.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 bg-gray-50/50 dark:bg-gray-800/30 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800">
+                <Calendar className="w-12 h-12 text-gray-300 mb-4" />
+                <p className="text-xs font-black uppercase tracking-widest text-gray-400">System Ready • No Analytical Data</p>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-8 animate-in fade-in duration-500">
             {/* ── Analytics Sub-Tab Navigation ── */}
@@ -211,7 +212,7 @@ const Dashboard = ({
                     >
                         Trends & Bottlenecks
                     </button>
-                    {['super_admin', 'general_manager', 'assistant_manager', 'team_lead', 'group_lead'].includes(userProfile?.role) && (
+                    {['super_admin', 'general_manager', 'manager', 'team_lead', 'group_lead'].includes(userProfile?.role) && (
                         <button
                             type="button"
                             onClick={() => setAnalyticsSubTab('targets')}
@@ -334,7 +335,7 @@ const Dashboard = ({
                 />
             )}
 
-            {analyticsSubTab === 'targets' && ['super_admin', 'general_manager', 'assistant_manager', 'team_lead', 'group_lead'].includes(userProfile?.role) && (
+            {analyticsSubTab === 'targets' && ['super_admin', 'general_manager', 'manager', 'team_lead', 'group_lead'].includes(userProfile?.role) && (
                 <DivisionTargetsManager
                     userProfile={userProfile}
                     clients={clients}

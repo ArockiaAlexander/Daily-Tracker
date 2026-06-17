@@ -53,7 +53,7 @@ export default function Leaderboard() {
         if (userRole === 'super_admin' || userRole === 'general_manager') {
           const { data } = await supabase.from('teams').select('*').eq('is_active', true);
           setTeams(data || []);
-        } else if (userRole === 'assistant_manager') {
+        } else if (userRole === 'manager') {
           const { data: { user } } = await supabase.auth.getUser();
           const { data } = await supabase.from('teams').select('*').eq('manager_id', user.id);
           setTeams(data || []);
@@ -96,7 +96,7 @@ export default function Leaderboard() {
         if (userRole === 'performer' || userRole === 'team_lead') {
           // Only show team members
           query = query.eq('team_id', teamId);
-        } else if (userRole === 'assistant_manager') {
+        } else if (userRole === 'manager') {
           // Show only managed teams
           const { data: managedTeams } = await supabase
             .from('teams')
@@ -180,7 +180,7 @@ export default function Leaderboard() {
               <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Rank</th>
               <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Name</th>
               <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">role</th>
-              {(userRole === 'super_admin' || userRole === 'general_manager' || userRole === 'assistant_manager') && (
+              {(userRole === 'super_admin' || userRole === 'general_manager' || userRole === 'manager') && (
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Team</th>
               )}
               <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700 dark:text-gray-300">
@@ -219,7 +219,7 @@ export default function Leaderboard() {
                       {entry.role.replace('_', ' ')}
                     </span>
                   </td>
-                  {(userRole === 'super_admin' || userRole === 'general_manager' || userRole === 'assistant_manager') && (
+                  {(userRole === 'super_admin' || userRole === 'general_manager' || userRole === 'manager') && (
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                       {entry.team_name || 'N/A'}
                     </td>
@@ -309,7 +309,7 @@ export default function Leaderboard() {
         </div>
 
         {/* Team Filter (for managers) */}
-        {(userRole === 'super_admin' || userRole === 'general_manager' || userRole === 'assistant_manager') && teams.length > 0 && (
+        {(userRole === 'super_admin' || userRole === 'general_manager' || userRole === 'manager') && teams.length > 0 && (
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Filter by Team</label>
             <select
