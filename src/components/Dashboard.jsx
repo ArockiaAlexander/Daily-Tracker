@@ -1,14 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Filter, Calendar } from 'lucide-react';
 import DataExport from './DataExport';
 import OverviewDashboard from './OverviewDashboard';
 import TrendsDashboard from './TrendsDashboard';
 import DivisionTargetsManager from './DivisionTargetsManager';
+import PerformanceRating from './PerformanceRating';
 
 const STANDARD_TARGETS = {
     Prestyle: 900,
     Preedit: 300,
     'FL Validation': 600,
+    'FP Validation': 600,
     'Revises Validation': 1200,
     Normalisation: 300,
     'Cast-off XML Conversion': 4,
@@ -16,16 +18,19 @@ const STANDARD_TARGETS = {
     'Style Editing': 80,
 };
 
-const Dashboard = ({ 
-    entries, 
-    userProfile, 
-    clients = [], 
-    divisionTargets = [], 
-    onRefreshTargets, 
-    supabase 
+const Dashboard = ({
+    entries,
+    userProfile,
+    clients = [],
+    divisionTargets = [],
+    onRefreshTargets,
+    supabase,
+    accessibleProfiles = [],
+    analyticsDeepLink = null,
+    onDeepLinkConsumed,
 }) => {
     const [selectedPerformer, setSelectedPerformer] = useState('all');
-    const [selectedClient, setSelectedClient] = useState('all');
+    const [selectedClient, setSelectedClient] = useState(() => analyticsDeepLink?.client || 'all');
     const [viewMode, setViewMode] = useState('team');
     const [groupBy, setGroupBy] = useState(() => {
         if (['manager', 'general_manager', 'super_admin'].includes(userProfile?.role)) return 'client';
@@ -34,7 +39,20 @@ const Dashboard = ({
     });
 
     // Sub-tab navigation
-    const [analyticsSubTab, setAnalyticsSubTab] = useState('overview');
+    const [analyticsSubTab, setAnalyticsSubTab] = useState(() =>
+        analyticsDeepLink?.tab === 'ratings' ? 'ratings' : 'overview'
+    );
+    const [ratingDeepLink, setRatingDeepLink] = useState(analyticsDeepLink);
+
+    useEffect(() => {
+        if (!analyticsDeepLink) return;
+        if (analyticsDeepLink.tab === 'ratings') {
+            setAnalyticsSubTab('ratings');
+            setRatingDeepLink(analyticsDeepLink);
+            if (analyticsDeepLink.client) setSelectedClient(analyticsDeepLink.client);
+        }
+        if (typeof onDeepLinkConsumed === 'function') onDeepLinkConsumed();
+    }, [analyticsDeepLink, onDeepLinkConsumed]);
 
     // Normalize roles
     const rawRole = userProfile?.role || 'performer';
@@ -221,11 +239,18 @@ const Dashboard = ({
                             Division Targets
                         </button>
                     )}
+                    <button
+                        type="button"
+                        onClick={() => setAnalyticsSubTab('ratings')}
+                        className={`px-4 py-2 text-xs font-black uppercase tracking-wider rounded-lg transition-all ${analyticsSubTab === 'ratings' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-550 hover:text-gray-900 dark:hover:text-gray-300'}`}
+                    >
+                        Performance Rating
+                    </button>
                 </div>
             </div>
 
-            {/* Filters Bar (Common to all tabs except division targets manager form) */}
-            {analyticsSubTab !== 'targets' && !isPerformer && (
+            {/* Filters Bar (Common to overview/trends; ratings has its own controls) */}
+            {analyticsSubTab !== 'targets' && analyticsSubTab !== 'ratings' && !isPerformer && (
                 <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-800/80 flex flex-wrap items-center gap-6">
                     <div className="flex items-center gap-3">
                         <Filter size={18} className="text-blue-600" />
@@ -343,6 +368,25 @@ const Dashboard = ({
                     onRefreshTargets={onRefreshTargets}
                     supabase={supabase}
                     isManager={isManager}
+                />
+            )}
+
+            {analyticsSubTab === 'ratings' && (
+                <PerformanceRating
+                    entries={entries}
+                    filteredEntries={filteredEntries}
+                    userProfile={userProfile}
+                    accessibleProfiles={accessibleProfiles.length ? accessibleProfiles : (userProfile ? [userProfile] : [])}
+                    clients={clients}
+                    initialFilters={{
+                        client: ratingDeepLink?.client || (selectedClient !== 'all' ? selectedClient : null),
+                        division: ratingDeepLink?.division || null,
+                        period: ratingDeepLink?.period || null,
+                        start: ratingDeepLink?.start || null,
+                        end: ratingDeepLink?.end || null,
+                        groupBy: ratingDeepLink?.groupBy || 'individual',
+                    }}
+                    onFiltersApplied={() => setRatingDeepLink(null)}
                 />
             )}
         </div>

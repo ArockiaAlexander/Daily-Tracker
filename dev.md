@@ -17,5 +17,5 @@ https://arockiaalexander.github.io/Daily-Tracker/
 
 \-----------------
 ayaz@company.co
-ayaz\_admin\_cbpet\_tracker!2026
+ayaz_admin_cbpet_tracker!2026
 

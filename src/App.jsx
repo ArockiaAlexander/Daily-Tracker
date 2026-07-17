@@ -22,6 +22,7 @@ import {
     sanitizeAuthUrl,
     getAuthRedirectUrl,
 } from './lib/authRedirect';
+import { parseAnalyticsHash } from './lib/performanceRating';
 import {
     LayoutDashboard,
     ClipboardList,
@@ -49,6 +50,11 @@ const App = () => {
     // App-tab hashes that should resolve to the app view when authenticated
     const APP_HASHES = new Set(['form', 'analytics', 'admin']);
 
+    const getHashPath = () => {
+        const raw = window.location.hash.slice(1);
+        return raw.split('?')[0].split('#')[0];
+    };
+
     // ── Auth & Session State ──
     const [session, setSession] = useState(null);
     const [profile, setProfile] = useState(null);
@@ -57,7 +63,7 @@ const App = () => {
     const getInitialView = () => {
         if (isRecoveryCallback()) return 'reset-password';
         if (isAuthCallbackUrl()) return 'login';
-        const hash = window.location.hash.slice(1).split('#')[0];
+        const hash = getHashPath();
         if (hash === 'signup' || hash.startsWith('signup')) return 'signup';
         if (hash === 'landing') return 'landing';
         if (hash === 'login') return 'login';
@@ -67,10 +73,16 @@ const App = () => {
         return 'landing';
     };
     const getInitialTab = () => {
-        const hash = window.location.hash.slice(1).split('#')[0];
+        const hash = getHashPath();
         return HASH_TO_TAB[hash] || 'form';
     };
     const [view, setView] = useState(getInitialView); // 'landing', 'login', 'signup', 'forgot-password', 'reset-password', 'app'
+    const [analyticsDeepLink, setAnalyticsDeepLink] = useState(() => {
+        const parsed = parseAnalyticsHash(window.location.hash);
+        return parsed.path === 'analytics' && (parsed.tab || parsed.client || parsed.start)
+            ? parsed
+            : null;
+    });
 
     // ── App State ──
     const getTodayISO = () => new Date().toISOString().slice(0, 10);
@@ -196,10 +208,16 @@ const App = () => {
 
     // ── Hash Routing Effects ──
     // Sync activeTab → URL hash when tab changes (only in app view)
+    // Preserve analytics query params when staying on analytics
     useEffect(() => {
         if (view === 'app') {
-            const desiredHash = '#' + (TAB_TO_HASH[activeTab] || 'form');
-            if (window.location.hash !== desiredHash) {
+            const desiredPath = TAB_TO_HASH[activeTab] || 'form';
+            const current = parseAnalyticsHash(window.location.hash);
+            if (activeTab === 'dashboard' && current.path === 'analytics' && window.location.hash.includes('?')) {
+                return; // keep deep-link query until consumed/navigated
+            }
+            const desiredHash = '#' + desiredPath;
+            if (window.location.hash.split('?')[0] !== desiredHash) {
                 window.location.hash = desiredHash;
             }
         }
@@ -209,10 +227,13 @@ const App = () => {
     useEffect(() => {
         const onHashChange = () => {
             if (view !== 'app') return;
-            const hash = window.location.hash.slice(1).split('#')[0];
-            const mapped = HASH_TO_TAB[hash];
+            const parsed = parseAnalyticsHash(window.location.hash);
+            const mapped = HASH_TO_TAB[parsed.path];
             if (mapped && mapped !== activeTab) {
                 setActiveTab(mapped);
+            }
+            if (parsed.path === 'analytics' && (parsed.tab || parsed.client || parsed.start)) {
+                setAnalyticsDeepLink(parsed);
             }
         };
         window.addEventListener('hashchange', onHashChange);
@@ -528,14 +549,19 @@ const App = () => {
     };
 
     // ── Config ──
+    const MIN_HOURS = 1;
+    const MAX_HOURS = 4;
     const standardTargets = {
-        Prestyle: 900, Preedit: 300, 'FL Validation': 600, 'Revises Validation': 1200,
+        Prestyle: 900, Preedit: 300, 'FP Validation': 600, 'Revises Validation': 1200,
         Normalisation: 300, 'Cast-off XML Conversion': 4, 'Ref Edit': 400, 'Style Editing': 80
     };
+    // Selectable task types; Miscellaneous has no productivity target
+    const taskTypeOptions = [...Object.keys(standardTargets), 'Miscellaneous'];
     const STANDARD_WORK_HOURS_PER_DAY = 8;
     const MOTIVATIONAL_MESSAGE = 'Keep Trying!';
 
     const getTargetForEntry = (task, client, subDiv) => {
+        if (task === 'Miscellaneous') return 0;
         const custom = divisionTargets.find(t => 
             t.client_id === client && 
             t.sub_division === subDiv && 
@@ -545,11 +571,16 @@ const App = () => {
         return standardTargets[task] || 0;
     };
 
-    const timeAchievedPercentage = estimatedTime > 0 && takenTime > 0
-        ? ((estimatedTime / takenTime) * 100).toFixed(2) : 0;
+    const isHoursInRange = (value) => {
+        const n = Number(value);
+        return Number.isFinite(n) && n >= MIN_HOURS && n <= MAX_HOURS;
+    };
+
+    const timeAchievedPercentage = estimatedTime > 0 && takenTime > 0 ? ((estimatedTime / takenTime) * 100).toFixed(2) : 0;
 
     const activeTargetVal = taskType ? getTargetForEntry(taskType, selectedClient, selectedSubDivision) : 0;
-    const targetAchievedPercentage = taskType && activeTargetVal > 0 && takenTime > 0
+    const isMiscellaneous = taskType === 'Miscellaneous';
+    const targetAchievedPercentage = !isMiscellaneous && taskType && activeTargetVal > 0 && takenTime > 0
         ? ((completedPages / ((activeTargetVal / STANDARD_WORK_HOURS_PER_DAY) * takenTime)) * 100).toFixed(2) : 0;
 
     // ── Handlers ──
@@ -559,12 +590,21 @@ const App = () => {
             setShowErrorModal(true);
             return;
         }
-        const achievementStatus = targetAchievedPercentage >= 100 ? 'Achieved' : MOTIVATIONAL_MESSAGE;
+        if (!isHoursInRange(estimatedTime) || !isHoursInRange(takenTime)) {
+            setToastMessage(`❌ Estimated and Taken Hours must be between ${MIN_HOURS} and ${MAX_HOURS}`);
+            setShowToast(true);
+            return;
+        }
+        const achievementStatus = isMiscellaneous
+            ? 'N/A'
+            : (Number(targetAchievedPercentage) >= 100 ? 'Achieved' : MOTIVATIONAL_MESSAGE);
         const newEntry = {
             id: Date.now(), date: entryDate, performerName: performerName.trim(),
             titleName: titleName.trim(), completedPages: Number(completedPages), taskType,
             estimatedTime: Number(estimatedTime), takenTime: Number(takenTime),
-            timeAchieved: timeAchievedPercentage, targetAchieved: targetAchievedPercentage, status: achievementStatus,
+            timeAchieved: timeAchievedPercentage,
+            targetAchieved: isMiscellaneous ? 0 : targetAchievedPercentage,
+            status: achievementStatus,
             client_id: selectedClient || 'DEFAULT_CLIENT',
             sub_division: selectedSubDivision || null
         };
@@ -716,6 +756,9 @@ const App = () => {
                             divisionTargets={divisionTargets} 
                             onRefreshTargets={fetchDivisionTargets} 
                             supabase={supabase}
+                            accessibleProfiles={accessibleProfiles}
+                            analyticsDeepLink={analyticsDeepLink}
+                            onDeepLinkConsumed={() => setAnalyticsDeepLink(null)}
                         />
                     ) : activeTab === 'super_admin' ? (
                         <div className="space-y-8">
@@ -1063,7 +1106,7 @@ const App = () => {
                                             <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Task Type</label>
                                             <select value={taskType} onChange={e => setTaskType(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E')] bg-[length:20px_20px] bg-[right_1rem_center] bg-no-repeat font-medium" required>
                                                 <option value="">Select Task</option>
-                                                {Object.keys(standardTargets).map(k => <option key={k} value={k}>{k}</option>)}
+                                                {taskTypeOptions.map(k => <option key={k} value={k}>{k}</option>)}
                                             </select>
                                         </div>
                                         <div>
@@ -1075,11 +1118,13 @@ const App = () => {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div>
                                             <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Estimated Hours</label>
-                                            <input type="number" value={estimatedTime} onChange={e => setEstimatedTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" placeholder="8.0" required />
+                                            <input type="number" value={estimatedTime} onChange={e => setEstimatedTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" min={MIN_HOURS} max={MAX_HOURS} placeholder="1.0 – 4.0" required />
+                                            <p className="text-[10px] text-gray-400 mt-1 ml-1">Allowed range: {MIN_HOURS}–{MAX_HOURS} hours</p>
                                         </div>
                                         <div>
                                             <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Taken Hours</label>
-                                            <input type="number" value={takenTime} onChange={e => setTakenTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" placeholder="7.5" required />
+                                            <input type="number" value={takenTime} onChange={e => setTakenTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" min={MIN_HOURS} max={MAX_HOURS} placeholder="1.0 – 4.0" required />
+                                            <p className="text-[10px] text-gray-400 mt-1 ml-1">Allowed range: {MIN_HOURS}–{MAX_HOURS} hours</p>
                                         </div>
                                     </div>
 
@@ -1097,6 +1142,8 @@ const App = () => {
                                 onRefresh={fetchFromSupabase}
                                 isSyncing={isSyncing}
                                 canDeleteEntry={canDeleteEntry}
+                                divisionTargets={divisionTargets}
+                                getTargetForEntry={getTargetForEntry}
                             />
                         </div>
                     )}

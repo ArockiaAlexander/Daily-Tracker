@@ -92,8 +92,8 @@ create table if not exists public.status_entries (
   status text not null default 'Keep Trying!',
   created_at timestamptz not null default now(),
   constraint status_entries_completed_pages_nonnegative check ("completedPages" >= 0),
-  constraint status_entries_estimated_time_nonnegative check ("estimatedTime" >= 0),
-  constraint status_entries_taken_time_nonnegative check ("takenTime" >= 0)
+  constraint status_entries_estimated_time_range check ("estimatedTime" >= 1 and "estimatedTime" <= 4),
+  constraint status_entries_taken_time_range check ("takenTime" >= 1 and "takenTime" <= 4)
 );
 
 create table if not exists public.performance_metrics (
