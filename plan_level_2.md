@@ -25,7 +25,6 @@ In scope:
 - Smart Request Hub notification integration.
 - Selected Daily Tracker notification integration.
 - 48 hour assigned-request reminder engine.
-- Reminder idempotency table (DB-backed dedupe).
 - Read, unread, delete, dismiss, and action-required states.
 - Feature flags for safe rollout.
 
@@ -37,20 +36,12 @@ Out of scope:
 - Advanced user-configurable schedules beyond default reminder timing.
 - Mandatory email delivery.
 
-**Depends on:** Level 1 Smart Request Hub tables and events (`request_hub_tickets.last_activity_at`, `request_hub_events`). Role/RLS preflight already applied.
-
 ### 3. Database Migration
 
 Create one incremental migration:
 
 ```text
 sql_commands/ENTERPRISE_NOTIFICATIONS_PHASE2.sql
-```
-
-Companion verify:
-
-```text
-sql_commands/ENTERPRISE_NOTIFICATIONS_PHASE2_VERIFY.sql
 ```
 
 #### 3.1 Table: notifications
@@ -73,9 +64,6 @@ create table if not exists public.notifications (
   created_date timestamptz not null default now(),
   expire_date timestamptz,
   metadata jsonb not null default '{}'::jsonb,
-  email_sent_at timestamptz,
-  email_error text,
-  email_attempts integer not null default 0,
   constraint notifications_status_check
     check (status in ('active', 'dismissed', 'completed', 'expired')),
   constraint notifications_priority_check
@@ -141,37 +129,6 @@ create table if not exists public.notification_preferences (
 );
 ```
 
-#### 3.4 Table: request_hub_reminder_deliveries (idempotency)
-
-Purpose: prevent duplicate 48h reminders for the same ticket within a window. Mirror the pattern of [`weekly_report_deliveries`](../sql_commands/WEEKLY_REPORT_DELIVERIES.sql) — do **not** rely on in-memory Edge Function state.
-
-```sql
-create table if not exists public.request_hub_reminder_deliveries (
-  id uuid primary key default gen_random_uuid(),
-  ticket_id uuid not null references public.request_hub_tickets(id) on delete cascade,
-  reminder_kind text not null default 'stale_assigned_48h',
-  notified_user_ids uuid[] not null default '{}',
-  created_at timestamptz not null default now(),
-  metadata jsonb not null default '{}'::jsonb
-);
-
-create index if not exists idx_request_hub_reminder_ticket_created
-on public.request_hub_reminder_deliveries(ticket_id, created_at desc);
-```
-
-Dedupe rule in the Edge Function:
-
-- Before inserting notifications, check for a row for the same `ticket_id` + `reminder_kind` with `created_at > now() - interval '24 hours'`.
-- If present, skip; otherwise insert notifications and a delivery row.
-
-Level 1 already adds `last_activity_at` on `request_hub_tickets`. Level 2 must **not** re-add that column; only backfill if somehow null:
-
-```sql
-update public.request_hub_tickets
-set last_activity_at = coalesce(last_activity_at, updated_at, created_date)
-where last_activity_at is null;
-```
-
 ### 4. RLS And Security
 
 Enable RLS:
@@ -180,7 +137,6 @@ Enable RLS:
 alter table public.notifications enable row level security;
 alter table public.notification_actions enable row level security;
 alter table public.notification_preferences enable row level security;
-alter table public.request_hub_reminder_deliveries enable row level security;
 ```
 
 Rules:
@@ -190,31 +146,17 @@ Rules:
 - Users can read actions linked to their own notifications.
 - Users can manage their own notification preferences.
 - Browser clients cannot create arbitrary notifications for other users.
-- System-generated notifications and reminder deliveries must be inserted through an RPC or Edge Function using the **service role** (same pattern as `invite-user` / `weekly-performance-report`).
-- Reminder delivery rows: select for `super_admin` / `general_manager` only (audit); inserts via service role.
+- System-generated notifications should be inserted through an RPC or Edge Function.
 - Super admins may receive audit/support visibility only if explicitly added through separate policy.
-- Use active roles only (`manager`, never `assistant_manager`).
 
 ### 5. Notification Types
 
 Supported notification channels:
 
-- Bell notification (drawer).
-- Toast (see §5.1 — dual path).
-- Email-ready notification (optional).
-- System alert (action-required / critical).
-
-#### 5.1 Toast dual path
-
-Existing [`src/components/Toast.jsx`](../src/components/Toast.jsx) is **success-only**, ~2s auto-dismiss, single message, App-owned state. That is fine for Level 1 CRUD feedback.
-
-For Level 2:
-
-- Keep App toast for short CRUD confirmations (request saved, marked read, etc.).
-- Do **not** treat current Toast as the full notification channel.
-- Prefer the notification drawer / bell for assignments, escalations, and action-required items.
-- Optionally extend Toast later with variants (`success` / `error` / `info`), longer duration, and a small queue — as a separate, non-blocking improvement.
-- Avoid toast spam: do not toast every low-value event when a bell item is enough.
+- Bell notification.
+- Toast.
+- Email-ready notification.
+- System alert.
 
 Priority use:
 
@@ -254,7 +196,7 @@ src/lib/notifications/notificationRules.js
 - Maintain unread count.
 - Provide context methods.
 - Refresh after notification actions.
-- Leave room for Supabase realtime later (polling/refresh first — see further_suggestions).
+- Leave room for Supabase realtime later.
 
 Context API:
 
@@ -271,16 +213,31 @@ Context API:
 }
 ```
 
-`sendNotification` from the browser must only target allowed receivers via a trusted RPC/Edge Function — never direct cross-user inserts under anon key.
+`NotificationBell` responsibilities:
 
-Pagination defaults: drawer latest 20; center paginated 50.
+- Show unread count.
+- Open drawer.
+- Highlight critical or action-required notifications.
+
+`NotificationDrawer` responsibilities:
+
+- Show recent notifications.
+- Filter unread and action-required messages.
+- Render action buttons.
+- Link back to source module by route and reference ID.
+
+`NotificationCenter` responsibilities:
+
+- Full notification view.
+- Filter by module, priority, read status, and date.
+- Bulk mark as read.
 
 ### 7. Service API
 
 Required reusable functions:
 
 ```js
-sendNotification(payload) // via trusted path
+sendNotification(payload)
 markAsRead(notificationId)
 markAllRead(userId)
 getUnreadCount(userId)
@@ -342,16 +299,14 @@ Action buttons:
 - Manager receives `View`, `Assign`, and `Comment`.
 - General Manager and Super Admin receive all relevant review actions.
 
-Deep links: open `#request-hub` with enough metadata in `reference_id` / `metadata` to select the ticket in the hub UI.
-
 ### 9. Daily Tracker Integration
 
 Initial Daily Tracker notifications:
 
-- Entry submitted successfully (prefer toast only; optional bell for “on behalf of”).
+- Entry submitted successfully.
 - Manager logs an entry on behalf of a performer.
 - Entry deleted by manager, general manager, or super admin.
-- Duplicate entry blocked, when duplicate prevention is implemented (Level 3).
+- Duplicate entry blocked, when duplicate prevention is implemented.
 - Weekly performance report available, if that feature is active.
 
 Keep Daily Tracker integration intentionally small to avoid destabilizing existing workflows.
@@ -367,42 +322,52 @@ If a performer does not update an assigned Smart Request Hub ticket within 48 ho
 - Show it as escalation data.
 - Optionally send email if email notification is enabled.
 
-Implementation:
+Recommended implementation:
 
-- Use Level 1 `last_activity_at` (do not re-add the column).
-- Update `last_activity_at` on status, remark, assignment, screenshot, and priority changes (already required in Level 1 services).
+- Add `last_activity_at timestamptz` to `request_hub_tickets` in the Level 2 migration if not added in Level 1.
+- Update `last_activity_at` on status, remark, assignment, screenshot, and priority changes.
 - Add Edge Function:
 
 ```text
 supabase/functions/request-hub-reminders
 ```
 
-Follow existing patterns:
-
-- Auth / service-role style of [`supabase/functions/invite-user`](../supabase/functions/invite-user/) for any user-triggered trusted APIs.
-- Scheduled job style of [`supabase/functions/weekly-performance-report`](../supabase/functions/weekly-performance-report/) plus cron guidance in [`docs/WEEKLY_PERFORMANCE_REPORTS.md`](../docs/WEEKLY_PERFORMANCE_REPORTS.md) (`cron.schedule` + `net.http_post`). Cron SQL is not currently checked into `sql_commands/`; document the schedule the same way as weekly reports when deploying.
-
 Function behavior:
 
-- Finds tickets with status `Assigned`, `In Progress`, or `Need Information`, and `archived_at is null`.
+- Finds tickets with status `Assigned`, `In Progress`, or `Need Information`.
 - Checks `last_activity_at < now() - interval '48 hours'`.
-- Uses `request_hub_reminder_deliveries` to avoid duplicate reminders for the same ticket within the last 24 hours.
-- Creates notifications for performer and lead via service role.
+- Avoids duplicate reminder notifications for the same ticket within the last 24 hours.
+- Creates notifications for performer and lead.
 - Optionally dispatches email if enabled.
 
-Future reminder options: 24h / 48h / 72h / weekly. Default: **48 hours**.
+Future reminder options:
+
+- 24 hours.
+- 48 hours.
+- 72 hours.
+- Weekly.
+
+Default:
+
+```text
+48 hours
+```
 
 ### 11. Email Strategy
 
-Email is optional in Level 2.
+Email should be optional in Level 2.
 
 Recommended default:
 
 - Implement in-app notifications first.
-- Store email intent in metadata / `email_*` columns.
-- Dispatch only for high-priority or overdue events after credentials are confirmed.
+- Store email intent in metadata.
+- Add email dispatch only for high-priority or overdue events after SMTP/API credentials are confirmed.
 
-**Credentials:** use server-side Edge Function secret `RESEND_API_KEY` (same as weekly performance report). Do **not** use `VITE_RESEND_API` for enterprise notification email — Vite vars are exposed to the browser.
+Optional columns if email is implemented:
+
+- `email_sent_at`
+- `email_error`
+- `email_attempts`
 
 ### 12. Feature Flags
 
@@ -414,33 +379,31 @@ VITE_ENABLE_NOTIFICATION_EMAIL
 VITE_ENABLE_REQUEST_HUB_REMINDERS
 ```
 
-Defaults (build-time Vite):
+Defaults:
 
-- Notifications enabled when unset (`!== 'false'`).
+- Notifications enabled when unset.
 - Email disabled unless explicitly enabled.
-- Reminder UI / client hooks enabled separately from the scheduled reminder function.
-- Flipping any flag requires rebuild/redeploy. Document all three in `.env.example`.
+- Reminder UI enabled separately from the scheduled reminder function.
 
 ### 13. Deployment
 
 Recommended order:
 
 1. Apply `ENTERPRISE_NOTIFICATIONS_PHASE2.sql`.
-2. Run verify script.
-3. Add notification service and provider.
-4. Wrap authenticated app shell in `NotificationProvider`.
-5. Add `NotificationBell` to the top navigation.
-6. Connect Smart Request Hub events to trusted `sendNotification()`.
-7. Add minimal Daily Tracker events.
-8. Deploy `request-hub-reminders` Edge Function in staging; schedule via cron doc pattern.
-9. Validate RLS with multiple users.
-10. Enable in production.
+2. Add notification service and provider.
+3. Wrap authenticated app shell in `NotificationProvider`.
+4. Add `NotificationBell` to the top navigation.
+5. Connect Smart Request Hub events to `sendNotification()`.
+6. Add minimal Daily Tracker events.
+7. Deploy reminder Edge Function in staging.
+8. Validate RLS with multiple users.
+9. Enable in production.
 
 Rollback:
 
-- Set `VITE_ENABLE_NOTIFICATIONS=false` and rebuild.
+- Set `VITE_ENABLE_NOTIFICATIONS=false`.
 - Disable scheduled reminder job.
-- Keep notification and reminder delivery tables.
+- Keep notification tables.
 
 ### 14. Testing
 
@@ -459,11 +422,9 @@ Manual:
 - Action button opens the correct Smart Request Hub ticket.
 - Assignment sends notification to assignee.
 - Need Information sends notification to creator.
-- 48 hour reminder creates only one recent reminder per ticket (idempotency table).
+- 48 hour reminder creates only one recent reminder per ticket.
 - User cannot read another user's notifications.
-- Browser cannot insert notifications for other users.
 - App remains usable when notifications are disabled.
-- CRUD toasts still work without flooding the drawer.
 
 ### 15. Acceptance Criteria
 
@@ -471,8 +432,9 @@ Level 2 is complete when:
 
 - Reusable notification tables and services exist.
 - Header bell and drawer work for authenticated users.
-- Smart Request Hub emits notifications for key events via a trusted path.
+- Smart Request Hub emits notifications for key events.
 - Selected Daily Tracker events can emit notifications.
-- Reminder engine supports the 48 hour assigned-ticket rule with DB idempotency.
+- Reminder engine supports the 48 hour assigned-ticket rule.
 - RLS protects receiver-specific notification data.
-- Email remains optional, feature-flagged, and server-secret based.
+- Email remains optional and feature-flagged.
+
