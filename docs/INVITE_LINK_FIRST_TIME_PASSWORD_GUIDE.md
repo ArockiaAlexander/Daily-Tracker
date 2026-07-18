@@ -1,138 +1,114 @@
-# Invite Link First-Time Password Guide
+# Invite Link & Admin Invite Guide
 
-This guide explains what happens when a new user opens the invite link for the first time.
+CBPET supports **three** admin onboarding paths. Use the one that matches the situation.
 
-## Short answer
+## Which method to use
 
-If the user comes through the signup invite link, they set their password directly on the signup page.
+| Method | When to use | What happens |
+|--------|-------------|--------------|
+| **Admin Invite** | You know the email and role now | Invite email is sent; user sets display name + password |
+| **Add New User** | Create account immediately | `signUp` with temp password; confirmation email |
+| **Provision User** | Share a link (chat/email yourself) | Copies `#signup` link; user self-registers as Performer |
 
-They do not need an admin to set the password for them.
+---
 
-## Current flow in this project
+## 1. Admin Invite (emailed)
 
-The invite link points users to the signup route.
+1. Administration → **Admin Invite**
+2. Enter **email** and **role**
+3. Confirm **Display Name preview** (from email local-part)
+4. Click **Send Invite**
 
-Example:
+Requires Edge Function deploy:
+
+```bash
+supabase functions deploy invite-user
+```
+
+Secrets / env for the function:
+
+| Name | Purpose |
+|------|---------|
+| `APP_URL` | App root, e.g. `https://arockiaalexander.github.io/Daily-Tracker/` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Provided by platform |
+| `SUPABASE_ANON_KEY` | For caller JWT validation |
+
+Invite delivery uses **Supabase Auth SMTP** (your Gmail SMTP settings) — not Resend.
+
+### What the invitee sees
+
+1. Opens the invite link from email
+2. App opens **Complete Your Invite**
+3. Confirms **Display Name** (editable)
+4. Sets **New password** + confirm
+5. Continues into the app
+
+### Resend
+
+In **User Management**, pending (unverified) users show a **Resend** button for `super_admin` / `general_manager`.
+
+---
+
+## 2. Add New User (immediate create)
+
+1. Administration → **Add New User**
+2. Email, Full Name, Role
+3. Account is created; user gets confirmation / uses reset if needed
+
+---
+
+## 3. Provision User (clipboard signup link)
+
+1. Administration → **Provision User**
+2. Copy `#signup` link or invite message
+3. User registers with name, email, password
+4. Default role is **Performer** — assign role later in User Management
+
+Example link:
 
 ```text
 https://your-app-url/#signup
 ```
 
-When the user opens that link:
+---
 
-1. the signup page opens
-2. the user enters name, email, password, and confirm password
-3. the user submits the form
-4. Supabase creates the auth account
-5. the database trigger creates the `public.profiles` row
-6. the user can log in with the same password they just created
+## Email verified status
 
-## Step-by-step for the user
+Run SQL once:
 
-1. Open the invite link shared by admin.
-2. Wait for the signup page to load.
-3. Enter your full name.
-4. Enter your email address.
-5. Enter a password.
-6. Re-enter the same password in confirm password.
-7. Click the signup button.
-8. Complete any email confirmation if Supabase asks for it.
-9. Log in with the same email and password.
+```text
+sql_commands/EMAIL_CONFIRMED_SYNC.sql
+```
 
-## What password should the user enter
+This adds `profiles.email_confirmed_at` and syncs from `auth.users`.
 
-The user chooses their own password during signup.
+User Management then shows:
 
-Recommended:
+- **Verified** — email confirmed
+- **Pending** — not confirmed yet
 
-- at least 8 characters
-- mix of uppercase, lowercase, number, and symbol if possible
-- avoid using name or email in password
+Filters: All email / Verified / Pending.
 
-## What happens after signup
+---
 
-By default, the new user is created in `profiles` with the default role from the system.
+## Redirect URLs
 
-In your current project, that is usually:
+In Supabase → Authentication → URL Configuration, keep Site URL as your app origin (no hash). Invite/recovery tokens are handled by the app via hash fragments.
 
-- `performer`
+Also ensure Redirect URLs include your production and localhost origins.
 
-If the admin wants a different role later, they can update it from the app.
-
-## Important difference from admin-created users
-
-There are two different onboarding paths:
-
-### Invite link signup
-
-- user opens `#signup`
-- user creates their own password on the form
-- user signs in with that password
-
-### Admin adds user from the dashboard
-
-- admin creates the account
-- user usually receives email setup/reset flow
-- user sets password from email link
-
-So if you are using the invite link, the password is created by the user on the first page itself.
+---
 
 ## Troubleshooting
 
-### User says "I opened the link but I don’t see signup"
+| Issue | Fix |
+|-------|-----|
+| Invite button fails | Deploy `invite-user` function; check `VITE_SUPABASE_URL` |
+| No invite email | Check Auth → SMTP (Gmail); spam folder |
+| Verified always Pending | Run `EMAIL_CONFIRMED_SYNC.sql` and refresh |
+| User already exists | Use Resend for pending, or edit role in User Management |
+| Invite opens login only | Confirm invite callback sets `#invite-accept` |
 
-Check:
+---
 
-- the link really ends with `#signup`
-- the app is connected to the correct Supabase project
-- the browser is not stuck on an old session
-
-Example valid link:
-
-```text
-http://localhost:5173/#signup
-```
-
-### User says "Signup worked but I can’t log in"
-
-Check:
-
-1. they are using the same email they signed up with
-2. they are using the same password they created on signup
-3. they completed email verification if required
-4. their user exists in `public.profiles`
-
-Admin can verify with:
-
-```sql
-select id, email, performer_name, role
-from public.profiles
-order by created_at desc;
-```
-
-### User forgot the password they created during signup
-
-They should:
-
-1. click `Forgot Password`
-2. use the reset email flow
-
-Or admin can send a reset link from the app.
-
-## Admin note
-
-Invite-link users typically enter the system as self-registered users.
-
-If they need a role like:
-
-- `team_lead`
-- `assistant_manager`
-- `general_manager`
-
-then the admin should update the role after signup from the user management section.
-
-## Related docs
-
-- [`FIRST_USER_SETUP_GUIDE.md`](d:/PERSONAL/LIVE_PROJECTS/CBPET/Daily-Tracker/docs/FIRST_USER_SETUP_GUIDE.md)
-- [`ADD_NEW_USER_GUIDE.md`](d:/PERSONAL/LIVE_PROJECTS/CBPET/Daily-Tracker/docs/ADD_NEW_USER_GUIDE.md)
-- [`MANAGER_TEAM_LEAD_PASSWORD_SETUP.md`](d:/PERSONAL/LIVE_PROJECTS/CBPET/Daily-Tracker/docs/MANAGER_TEAM_LEAD_PASSWORD_SETUP.md)
+*Updated: July 2026*

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import Toast from './Toast';
-import { Users, Trash2, Search, Shield, CheckCircle, Clock, Archive } from 'lucide-react';
+import { Users, Trash2, Search, Shield, CheckCircle, Clock, Archive, Mail } from 'lucide-react';
 
 const STATUS_OPTIONS = [
   { value: 'active',  label: '✅ Active',   description: 'Working normally',         colorClass: 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200'  },
@@ -16,11 +16,19 @@ const STATUS_FILTER_TABS = [
   { value: 'archive', label: '🗄 Archived' },
 ];
 
-export default function UserManagement({ currentUserRole }) {
+const VERIFY_FILTER_TABS = [
+  { value: 'all', label: 'All email' },
+  { value: 'verified', label: 'Verified' },
+  { value: 'pending', label: 'Pending' },
+];
+
+export default function UserManagement({ currentUserRole, onResendInvite }) {
   const [users, setUsers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [verifyFilter, setVerifyFilter] = useState('all');
   const [loading, setLoading] = useState(false);
+  const [resendingId, setResendingId] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [editingRole, setEditingRole] = useState(null);
   const [editingTeam, setEditingTeam] = useState(null);
@@ -41,13 +49,14 @@ export default function UserManagement({ currentUserRole }) {
   }, []);
 
   const isAdmin = ['super_admin', 'general_manager', 'manager'].includes(currentUserRole);
+  const canInvite = ['super_admin', 'general_manager'].includes(currentUserRole);
 
   const fetchUsers = async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, performer_name, role, team_id, client_id, client_ref, sub_division, email, status')
+        .select('id, performer_name, role, team_id, client_id, client_ref, sub_division, email, status, email_confirmed_at')
         .order('performer_name');
 
       if (error) throw error;
@@ -75,12 +84,40 @@ export default function UserManagement({ currentUserRole }) {
     }
   };
 
-  // ── Filtered users (search + status tab) ──
+  // ── Filtered users (search + status tab + email verify) ──
   const filteredUsers = users.filter(user => {
-    const matchesSearch = user.performer_name?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch =
+      user.performer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.email?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || (user.status || 'active') === statusFilter;
-    return matchesSearch && matchesStatus;
+    const verified = Boolean(user.email_confirmed_at);
+    const matchesVerify =
+      verifyFilter === 'all' ||
+      (verifyFilter === 'verified' && verified) ||
+      (verifyFilter === 'pending' && !verified);
+    return matchesSearch && matchesStatus && matchesVerify;
   });
+
+  const handleResendInvite = async (user) => {
+    if (!canInvite || !onResendInvite) {
+      showToast('Only super_admin / general_manager can resend invites', 'error');
+      return;
+    }
+    if (!user.email) {
+      showToast('User has no email on file', 'error');
+      return;
+    }
+    try {
+      setResendingId(user.id);
+      await onResendInvite(user.email, user.role);
+      showToast(`Invite / confirmation resent to ${user.email}`, 'success');
+      fetchUsers();
+    } catch (err) {
+      showToast(err.message || 'Resend failed', 'error');
+    } finally {
+      setResendingId(null);
+    }
+  };
 
   // ── Update handlers ──
   const handleUpdateRole = async (userId) => {
@@ -196,6 +233,12 @@ export default function UserManagement({ currentUserRole }) {
     archive: users.filter(u => u.status === 'archive').length,
   };
 
+  const countByVerify = {
+    all: users.length,
+    verified: users.filter(u => Boolean(u.email_confirmed_at)).length,
+    pending: users.filter(u => !u.email_confirmed_at).length,
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -204,7 +247,7 @@ export default function UserManagement({ currentUserRole }) {
           <Users className="w-8 h-8 text-blue-500" />
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">User Management</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Manage roles, status, and user permissions</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Manage roles, status, email verification, and permissions</p>
           </div>
         </div>
         <div className="text-right">
@@ -233,12 +276,31 @@ export default function UserManagement({ currentUserRole }) {
         ))}
       </div>
 
+      {/* Email verification filter */}
+      <div className="flex gap-2 flex-wrap">
+        {VERIFY_FILTER_TABS.map(tab => (
+          <button
+            key={tab.value}
+            type="button"
+            onClick={() => setVerifyFilter(tab.value)}
+            className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${
+              verifyFilter === tab.value
+                ? 'bg-indigo-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-500'
+            }`}
+          >
+            {tab.label}
+            <span className="ml-1 opacity-80">({countByVerify[tab.value]})</span>
+          </button>
+        ))}
+      </div>
+
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
         <input
           type="text"
-          placeholder="Search users by name..."
+          placeholder="Search users by name or email..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
@@ -259,6 +321,7 @@ export default function UserManagement({ currentUserRole }) {
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-700">
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Name</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Email</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Status</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Role</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700 dark:text-gray-300">Client (Team)</th>
@@ -272,7 +335,18 @@ export default function UserManagement({ currentUserRole }) {
                     <tr className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
                       <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
                         {user.performer_name}
-                        <p className="text-[10px] text-gray-400 font-mono">{user.email || ''}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="text-[11px] text-gray-500 font-mono">{user.email || '—'}</p>
+                        {user.email_confirmed_at ? (
+                          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                            <CheckCircle size={10} /> Verified
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400">
+                            <Clock size={10} /> Pending
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadge(user.status)}`}>
@@ -295,25 +369,39 @@ export default function UserManagement({ currentUserRole }) {
                         ) : '-'}
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => {
-                            setSelectedUser(user.id === selectedUser ? null : user.id);
-                            setEditingRole(user.role);
-                            setEditingTeam(user.client_ref);
-                            setEditingSubDivision(user.sub_division);
-                            setEditingStatus(user.status || 'active');
-                          }}
-                          className="px-3 py-1 text-sm bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 rounded hover:bg-blue-200 dark:hover:bg-blue-900 transition"
-                        >
-                          {selectedUser === user.id ? 'Collapse' : 'Edit'}
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedUser(user.id === selectedUser ? null : user.id);
+                              setEditingRole(user.role);
+                              setEditingTeam(user.client_ref);
+                              setEditingSubDivision(user.sub_division);
+                              setEditingStatus(user.status || 'active');
+                            }}
+                            className="px-3 py-1 text-sm bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 rounded hover:bg-blue-200 dark:hover:bg-blue-900 transition"
+                          >
+                            {selectedUser === user.id ? 'Collapse' : 'Edit'}
+                          </button>
+                          {canInvite && !user.email_confirmed_at && user.email && (
+                            <button
+                              type="button"
+                              disabled={resendingId === user.id}
+                              onClick={() => handleResendInvite(user)}
+                              className="px-3 py-1 text-sm bg-indigo-100 dark:bg-indigo-900/50 text-indigo-800 dark:text-indigo-200 rounded hover:bg-indigo-200 dark:hover:bg-indigo-900 transition flex items-center gap-1 disabled:opacity-50"
+                              title="Resend invite / confirmation email"
+                            >
+                              <Mail size={12} />
+                              {resendingId === user.id ? '…' : 'Resend'}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
 
                     {/* ── Expanded edit panel ── */}
                     {selectedUser === user.id && (
                       <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-700/30">
-                        <td colSpan="6" className="px-4 py-5">
+                        <td colSpan="7" className="px-4 py-5">
                           <div className="space-y-5">
 
                             {/* Status Selection */}

@@ -61,8 +61,18 @@ export function isRecoveryFromUrl() {
     return type === 'recovery' || (hash.includes('access_token') && hash.includes('type=recovery'));
 }
 
+export function isInviteFromUrl() {
+    const hash = window.location.hash;
+    const { type } = parseAuthCallback();
+    return type === 'invite' || (hash.includes('access_token') && hash.includes('type=invite'));
+}
+
 export function isRecoveryCallback() {
     return isRecoveryFromUrl();
+}
+
+export function isInviteCallback() {
+    return isInviteFromUrl();
 }
 
 export function isAuthCallbackUrl() {
@@ -115,7 +125,12 @@ async function doCompleteAuthCallback(supabase) {
     if (error) return { error: error.message, kind: null };
 
     if (session) {
+        const invite = isInviteFromUrl() || callback.type === 'invite';
         const recovery = isRecoveryFromUrl() || callback.type === 'recovery';
+        if (invite) {
+            sanitizeAuthUrl('invite-accept');
+            return { kind: 'invite' };
+        }
         sanitizeAuthUrl(recovery ? 'reset-password' : 'login');
         return { kind: recovery ? 'recovery' : 'session' };
     }

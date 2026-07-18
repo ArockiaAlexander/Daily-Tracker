@@ -7,6 +7,7 @@ import Login from './components/Login';
 import Signup from './components/Signup';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
+import InviteAccept from './components/InviteAccept';
 import LandingPage from './components/LandingPage';
 import WorkflowManager from './components/WorkflowManager';
 import UserManagement from './components/UserManagement';
@@ -18,11 +19,13 @@ import { supabase } from './lib/supabase';
 import {
     completeAuthCallback,
     isRecoveryCallback,
+    isInviteCallback,
     isAuthCallbackUrl,
     sanitizeAuthUrl,
     getAuthRedirectUrl,
 } from './lib/authRedirect';
 import { parseAnalyticsHash } from './lib/performanceRating';
+import { deriveDisplayNameFromEmail, isValidEmail } from './lib/displayName';
 import {
     LayoutDashboard,
     ClipboardList,
@@ -36,6 +39,7 @@ import {
     Settings,
     Search,
     UserPlus,
+    Mail,
     Copy,
     Check,
     Trash2,
@@ -61,9 +65,11 @@ const App = () => {
     const [authLoading, setAuthLoading] = useState(true);
     const [authCallbackError, setAuthCallbackError] = useState(null);
     const getInitialView = () => {
+        if (isInviteCallback()) return 'invite-accept';
         if (isRecoveryCallback()) return 'reset-password';
         if (isAuthCallbackUrl()) return 'login';
         const hash = getHashPath();
+        if (hash === 'invite-accept') return 'invite-accept';
         if (hash === 'signup' || hash.startsWith('signup')) return 'signup';
         if (hash === 'landing') return 'landing';
         if (hash === 'login') return 'login';
@@ -112,6 +118,10 @@ const App = () => {
     const [userSearchTerm, setUserSearchTerm] = useState('');
     const [showInviteModal, setShowInviteModal] = useState(false);
     const [showAddUserModal, setShowAddUserModal] = useState(false);
+    const [showAdminEmailInviteModal, setShowAdminEmailInviteModal] = useState(false);
+    const [inviteEmail, setInviteEmail] = useState('');
+    const [inviteRole, setInviteRole] = useState('performer');
+    const [inviteSending, setInviteSending] = useState(false);
     const [newUserEmail, setNewUserEmail] = useState('');
     const [newUserName, setNewUserName] = useState('');
     const [newUserRole, setNewUserRole] = useState('performer');
@@ -134,12 +144,16 @@ const App = () => {
             setAuthCallbackError(callbackResult.error || null);
 
             if (session) {
-                if (callbackResult.kind === 'recovery' || isRecoveryCallback()) {
+                if (callbackResult.kind === 'invite' || isInviteCallback()) {
+                    setView('invite-accept');
+                } else if (callbackResult.kind === 'recovery' || isRecoveryCallback()) {
                     setView('reset-password');
                 } else {
                     setView('app');
                 }
                 fetchProfile(session.user.id);
+            } else if (callbackResult.error || isInviteCallback()) {
+                setView('invite-accept');
             } else if (callbackResult.error || isRecoveryCallback()) {
                 setView('reset-password');
             }
@@ -156,20 +170,26 @@ const App = () => {
 
             if (session) {
                 fetchProfile(session.user.id);
-                if (event === 'PASSWORD_RECOVERY' || isRecoveryCallback()) {
+                if (isInviteCallback() || window.location.hash.includes('invite-accept')) {
+                    setView('invite-accept');
+                } else if (event === 'PASSWORD_RECOVERY' || isRecoveryCallback()) {
                     setView('reset-password');
                 } else {
-                    setView('app');
+                    setView((current) =>
+                        current === 'invite-accept' || current === 'reset-password' ? current : 'app'
+                    );
                 }
             } else {
                 setProfile(null);
-                if (isRecoveryCallback()) {
+                if (isInviteCallback()) {
+                    setView('invite-accept');
+                } else if (isRecoveryCallback()) {
                     setView('reset-password');
                 } else if (isAuthCallbackUrl()) {
                     return;
                 } else {
                     setView((current) => {
-                        if (current === 'reset-password') return current;
+                        if (current === 'reset-password' || current === 'invite-accept') return current;
                         const hash = window.location.hash;
                         if (hash === '#signup') return 'signup';
                         if (hash === '#landing') return 'landing';
@@ -644,12 +664,68 @@ const App = () => {
         }
     };
 
+    const handleAdminEmailInvite = async (e) => {
+        e.preventDefault();
+        if (profile?.role !== 'super_admin' && profile?.role !== 'general_manager') {
+            setToastMessage('❌ Access Denied: Only super_admin and general_manager can send invites');
+            setShowToast(true);
+            return;
+        }
+        if (!isValidEmail(inviteEmail)) {
+            setToastMessage('❌ Enter a valid email address');
+            setShowToast(true);
+            return;
+        }
+
+        setInviteSending(true);
+        try {
+            const { data: { session: adminSession } } = await supabase.auth.getSession();
+            if (!adminSession?.access_token) throw new Error('Not signed in');
+
+            const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invite-user`;
+            const res = await fetch(fnUrl, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${adminSession.access_token}`,
+                    apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'invite',
+                    email: inviteEmail.trim().toLowerCase(),
+                    role: inviteRole,
+                    displayName: deriveDisplayNameFromEmail(inviteEmail),
+                }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok || !payload.ok) {
+                throw new Error(payload.error || `Invite failed (${res.status})`);
+            }
+
+            setToastMessage(`✅ Invite sent to ${inviteEmail}`);
+            setShowToast(true);
+            setShowAdminEmailInviteModal(false);
+            setInviteEmail('');
+            setInviteRole('performer');
+            fetchAllProfiles();
+        } catch (err) {
+            setToastMessage('❌ ' + (err.message || 'Invite failed'));
+            setShowToast(true);
+        } finally {
+            setInviteSending(false);
+        }
+    };
+
     if (authLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
                 <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
             </div>
         );
+    }
+
+    if (view === 'invite-accept') {
+        return <InviteAccept setView={setView} authCallbackError={authCallbackError} />;
     }
 
     if (view === 'reset-password') {
@@ -781,15 +857,26 @@ const App = () => {
                                 <div className="flex gap-2">
                                     {adminSubTab === 'users' && (
                                         <>
+                                            {(profile?.role === 'super_admin' || profile?.role === 'general_manager') && (
+                                                <button
+                                                    onClick={() => setShowAdminEmailInviteModal(true)}
+                                                    className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white font-black rounded-xl shadow-lg shadow-blue-500/20 transition-all text-xs uppercase tracking-widest active:scale-95"
+                                                    title="Email invite with role — user sets name & password"
+                                                >
+                                                    <Mail size={16} /> Admin Invite
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => setShowAddUserModal(true)}
                                                 className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white font-black rounded-xl shadow-lg shadow-green-500/20 transition-all text-xs uppercase tracking-widest active:scale-95"
+                                                title="Create account immediately with temp password"
                                             >
                                                 <UserPlus size={16} /> Add New User
                                             </button>
                                             <button
                                                 onClick={() => setShowInviteModal(true)}
                                                 className="flex items-center gap-2 px-6 py-2.5 bg-purple-600 text-white font-black rounded-xl shadow-lg shadow-purple-500/20 transition-all text-xs uppercase tracking-widest active:scale-95"
+                                                title="Copy public #signup link"
                                             >
                                                 <UserPlus size={16} /> Provision User
                                             </button>
@@ -839,7 +926,28 @@ const App = () => {
 
                             {/* USER MANAGEMENT SECTION */}
                             {adminSubTab === 'users' && ['super_admin', 'general_manager', 'manager'].includes(profile?.role) ? (
-                                <UserManagement currentUserRole={profile?.role} />
+                                <UserManagement currentUserRole={profile?.role} onResendInvite={async (email, role) => {
+                                    const { data: { session: adminSession } } = await supabase.auth.getSession();
+                                    if (!adminSession?.access_token) throw new Error('Not signed in');
+                                    const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invite-user`;
+                                    const res = await fetch(fnUrl, {
+                                        method: 'POST',
+                                        headers: {
+                                            Authorization: `Bearer ${adminSession.access_token}`,
+                                            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+                                            'Content-Type': 'application/json',
+                                        },
+                                        body: JSON.stringify({
+                                            action: 'resend',
+                                            email,
+                                            role: role || 'performer',
+                                            displayName: deriveDisplayNameFromEmail(email),
+                                        }),
+                                    });
+                                    const payload = await res.json().catch(() => ({}));
+                                    if (!res.ok || !payload.ok) throw new Error(payload.error || 'Resend failed');
+                                    return payload;
+                                }} />
                             ) : adminSubTab === 'users' ? (
                                 <>
                                     {/* Search Bar */}
@@ -901,6 +1009,79 @@ const App = () => {
                             ) : null}
 
                             {/* MODALS - Outside main conditional so always available */}
+                            {/* Admin Invite Modal */}
+                            {showAdminEmailInviteModal && adminSubTab === 'users' && (
+                                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                                    <div className="bg-white dark:bg-gray-900 rounded-[40px] p-10 max-w-lg w-full shadow-2xl border border-gray-100 dark:border-gray-800 relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full -mr-16 -mt-16 blur-3xl" />
+
+                                        <h3 className="text-2xl font-black mb-2 tracking-tight">Admin Invite</h3>
+                                        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8 font-medium">
+                                            Send an invite email. The user opens the link, confirms display name, and sets a password.
+                                        </p>
+
+                                        <form onSubmit={handleAdminEmailInvite} className="space-y-6">
+                                            <div>
+                                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Email Address</label>
+                                                <input
+                                                    type="email"
+                                                    value={inviteEmail}
+                                                    onChange={(e) => setInviteEmail(e.target.value)}
+                                                    placeholder="user@company.com"
+                                                    className="w-full p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl outline-none focus:border-blue-500 font-bold text-sm"
+                                                    required
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Display Name Preview</label>
+                                                <input
+                                                    type="text"
+                                                    value={deriveDisplayNameFromEmail(inviteEmail) || '—'}
+                                                    readOnly
+                                                    className="w-full p-3 bg-gray-100 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-2xl font-bold text-sm text-gray-600 dark:text-gray-300 cursor-not-allowed"
+                                                />
+                                                <p className="text-[10px] text-gray-400 mt-1">Derived from email; user can edit when they accept.</p>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Assign Role</label>
+                                                <select
+                                                    value={inviteRole}
+                                                    onChange={(e) => setInviteRole(e.target.value)}
+                                                    className="w-full p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl outline-none focus:border-blue-500 font-bold text-sm"
+                                                >
+                                                    <option value="performer">Performer</option>
+                                                    <option value="team_lead">Team Lead</option>
+                                                    <option value="group_lead">Group Lead</option>
+                                                    <option value="manager">Manager</option>
+                                                    <option value="general_manager">General Manager</option>
+                                                    <option value="super_admin">Super Admin</option>
+                                                </select>
+                                            </div>
+
+                                            <div className="flex gap-3">
+                                                <button
+                                                    type="submit"
+                                                    disabled={inviteSending}
+                                                    className="flex-1 py-3 bg-blue-600 text-white font-black rounded-xl uppercase tracking-widest text-xs shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2"
+                                                >
+                                                    {inviteSending ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+                                                    Send Invite
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowAdminEmailInviteModal(false)}
+                                                    className="flex-1 py-3 bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200 font-black rounded-xl uppercase tracking-widest text-xs"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Add New User Modal */}
                             {showAddUserModal && adminSubTab === 'users' && (
                                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">

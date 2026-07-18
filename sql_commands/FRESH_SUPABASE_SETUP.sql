@@ -52,6 +52,7 @@ create table if not exists public.profiles (
   reports_to uuid references auth.users (id) on delete set null,
   client_id text not null default 'DEFAULT_CLIENT',
   is_active boolean not null default true,
+  email_confirmed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -200,19 +201,22 @@ begin
     email,
     performer_name,
     role,
-    client_id
+    client_id,
+    email_confirmed_at
   )
   values (
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'performer_name', split_part(coalesce(new.email, ''), '@', 1), 'New Performer'),
     'performer',
-    'DEFAULT_CLIENT'
+    'DEFAULT_CLIENT',
+    new.email_confirmed_at
   )
   on conflict (id) do update
   set
     email = excluded.email,
     performer_name = coalesce(public.profiles.performer_name, excluded.performer_name),
+    email_confirmed_at = coalesce(excluded.email_confirmed_at, public.profiles.email_confirmed_at),
     updated_at = now();
 
   return new;
@@ -229,6 +233,7 @@ begin
   update public.profiles
   set
     email = new.email,
+    email_confirmed_at = new.email_confirmed_at,
     updated_at = now()
   where id = new.id;
 
@@ -244,7 +249,7 @@ execute function public.handle_new_user();
 
 drop trigger if exists on_auth_user_email_updated on auth.users;
 create trigger on_auth_user_email_updated
-after update of email on auth.users
+after update of email, email_confirmed_at on auth.users
 for each row
 execute function public.sync_profile_email();
 
