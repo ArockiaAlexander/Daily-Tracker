@@ -20,8 +20,8 @@ Enterprise daily performance tracking for the CBPET team: role-based access, tas
 |------|--------|
 | Stack | React 18, Vite 6, Tailwind CSS 3, Supabase (Auth + Postgres + RLS), Chart.js, Lucide, SheetJS (`xlsx`) |
 | Hosting | GitHub Pages via Actions (`.github/workflows/deploy.yml`) |
-| Auth | Email/password; hash-based in-app routes (`#form`, `#analytics`, `#admin`) |
-| Data | `status_entries`, `profiles`, `clients`, `division_targets`, workflows/teams as configured |
+| Auth | Email/password; hash-based in-app routes (`#form`, `#analytics`, `#request-hub`, `#admin`) |
+| Data | `status_entries`, `profiles`, `clients`, `division_targets`, `request_hub_*`, `notifications`, behaviour snapshots / feedback as configured |
 
 ### Environment
 
@@ -46,21 +46,28 @@ npm run deploy       # optional gh-pages publish
 
 ```text
 Browser (React SPA)
-  ├── #form        Entry Form + Daily Summary
-  ├── #analytics   Dashboard (Overview / Trends / Division Targets / Performance Rating)
-  └── #admin       Administration (Users / Clients / Workflows)
+  ├── #form          Entry Form + Daily Summary (+ optional batch / duplicate guard)
+  ├── #analytics     Dashboard (Overview / Trends / Targets / Performance Rating / Behaviour Intelligence)
+  ├── #request-hub   Smart Request Hub (tickets, workflow, screenshots)
+  └── #admin         Administration (Users / Clients / Workflows)
 
 Supabase
   ├── Auth (SMTP = Gmail for auth/invite emails)
   ├── Postgres + RLS
+  ├── Storage (request-hub-screenshots)
   └── Edge Functions (service role)
         ├── invite-user
-        └── weekly-performance-report
+        ├── weekly-performance-report
+        ├── dispatch-notification
+        ├── request-hub-reminders
+        └── calculate-behaviour-snapshots
 ```
 
 **Core app shell:** [`src/App.jsx`](src/App.jsx) — session, profile, hash routing, entry form, admin modals, data fetch scoped by role.
 
-**Deep links:** `#analytics?tab=ratings&client=...&division=...&start=...&end=...` (Performance Rating). Auth callbacks use base URL without `#`; app parses hash tokens via [`src/lib/authRedirect.js`](src/lib/authRedirect.js).
+**Enterprise modules:** Smart Request Hub (`src/components/requestHub/`), Notifications (`src/components/notifications/`), Behaviour Intelligence (`src/components/enterpriseAnalytics/`). Feature flags: see `.env.example`.
+
+**Deep links:** `#analytics?tab=ratings&...` (Performance Rating); `#analytics?tab=behaviour` (Behaviour Intelligence). Auth callbacks use base URL without `#`; app parses hash tokens via [`src/lib/authRedirect.js`](src/lib/authRedirect.js).
 
 ---
 

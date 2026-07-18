@@ -31,7 +31,7 @@ import {
 } from './lib/authRedirect';
 import { parseAnalyticsHash } from './lib/performanceRating';
 import { deriveDisplayNameFromEmail, isValidEmail } from './lib/displayName';
-import { isSmartRequestHubEnabled, isNotificationsEnabled } from './lib/featureFlags';
+import { isSmartRequestHubEnabled, isNotificationsEnabled, isEntryDuplicateGuardEnabled } from './lib/featureFlags';
 import { notifyDailyTrackerEvent } from './lib/notifications/notificationRules';
 import {
     LayoutDashboard,
@@ -105,6 +105,7 @@ const App = () => {
     const getTodayISO = () => new Date().toISOString().slice(0, 10);
     const [performerName, setPerformerName] = useState('');
     const [titleName, setTitleName] = useState('');
+    const [batchNumber, setBatchNumber] = useState('');
     const [completedPages, setCompletedPages] = useState('');
     const [taskType, setTaskType] = useState('');
     const [estimatedTime, setEstimatedTime] = useState('');
@@ -602,7 +603,8 @@ const App = () => {
                 status: newEntry.status,
                 user_id: session.user.id,
                 client_id: newEntry.client_id || 'DEFAULT_CLIENT',
-                sub_division: newEntry.sub_division || null
+                sub_division: newEntry.sub_division || null,
+                batch_number: newEntry.batch_number ?? null,
             };
             const { error } = await supabase.from('status_entries').insert([entryWithAuth]);
             if (error) throw error;
@@ -660,6 +662,19 @@ const App = () => {
             setShowErrorModal(true);
             return;
         }
+        if (isEntryDuplicateGuardEnabled()) {
+            const dup = statusEntries.find(
+                (e) =>
+                    String(e.date).slice(0, 10) === entryDate &&
+                    e.titleName === titleName.trim() &&
+                    e.taskType === taskType &&
+                    (e.performerName === performerName.trim() || e.user_id === session?.user?.id)
+            );
+            if (dup) {
+                const edit = window.confirm('Already Submitted. Edit Existing?');
+                if (!edit) return;
+            }
+        }
         if (isMiscellaneous) {
             if (!isMiscHoursInRange(estimatedTime) || !isMiscHoursInRange(takenTime)) {
                 setToastMessage(`❌ Miscellaneous Estimated and Taken Hours must be between ${MIN_HOURS} and ${MAX_HOURS}`);
@@ -682,11 +697,12 @@ const App = () => {
             targetAchieved: isMiscellaneous ? 0 : targetAchievedPercentage,
             status: achievementStatus,
             client_id: selectedClient || 'DEFAULT_CLIENT',
-            sub_division: selectedSubDivision || null
+            sub_division: selectedSubDivision || null,
+            batch_number: batchNumber ? Number(batchNumber) : null,
         };
         setStatusEntries(prev => [newEntry, ...prev]);
         await syncToSupabase(newEntry);
-        setTitleName(''); setCompletedPages(''); setTaskType(''); setEstimatedTime(''); setTakenTime('');
+        setTitleName(''); setBatchNumber(''); setCompletedPages(''); setTaskType(''); setEstimatedTime(''); setTakenTime('');
         setToastMessage('✅ Status saved and synced!'); setShowToast(true);
         if (notificationsEnabled && canSelectPerformerOnForm && performerName !== profile?.performer_name) {
             const selectedProf = accessibleProfiles.find((p) => p.performer_name === performerName);
@@ -1375,6 +1391,20 @@ const App = () => {
                                     <div>
                                         <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Project/Title Name</label>
                                         <input type="text" value={titleName} onChange={e => setTitleName(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" placeholder="e.g., Springer Nature Vol 42" required />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Batch Number (optional)</label>
+                                        <select
+                                            value={batchNumber}
+                                            onChange={(e) => setBatchNumber(e.target.value)}
+                                            className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none font-medium"
+                                        >
+                                            <option value="">None</option>
+                                            {Array.from({ length: 25 }, (_, i) => i + 1).map((n) => (
+                                                <option key={n} value={n}>Batch {n}</option>
+                                            ))}
+                                        </select>
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

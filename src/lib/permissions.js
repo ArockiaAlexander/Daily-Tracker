@@ -41,6 +41,14 @@ export function canViewFeedback(role) {
   return isManagerRole(role);
 }
 
+export function canViewBehaviourAnalytics(role) {
+  return isLeadRole(role) || isManagerRole(role);
+}
+
+export function canUseGovernance(role) {
+  return role === 'super_admin';
+}
+
 export function canAccessAdminTab(role) {
   return ['super_admin', 'general_manager', 'manager'].includes(role);
 }

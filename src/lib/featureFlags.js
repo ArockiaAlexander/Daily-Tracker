@@ -31,3 +31,20 @@ export function isNotificationEmailEnabled() {
 export function isRequestHubRemindersEnabled() {
   return isDefaultOn('VITE_ENABLE_REQUEST_HUB_REMINDERS');
 }
+
+/** Level 3 flags — default off until SQL is applied and explicitly enabled. */
+export function isBehaviourAnalyticsEnabled() {
+  return isDefaultOff('VITE_ENABLE_BEHAVIOUR_ANALYTICS');
+}
+
+export function isFeedbackModuleEnabled() {
+  return isDefaultOff('VITE_ENABLE_FEEDBACK_MODULE');
+}
+
+export function isSuperAdminGovernanceEnabled() {
+  return isDefaultOff('VITE_ENABLE_SUPER_ADMIN_GOVERNANCE');
+}
+
+export function isEntryDuplicateGuardEnabled() {
+  return isDefaultOff('VITE_ENABLE_ENTRY_DUPLICATE_GUARD');
+}

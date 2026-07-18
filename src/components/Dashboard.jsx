@@ -5,6 +5,9 @@ import OverviewDashboard from './OverviewDashboard';
 import TrendsDashboard from './TrendsDashboard';
 import DivisionTargetsManager from './DivisionTargetsManager';
 import PerformanceRating from './PerformanceRating';
+import EnterpriseAnalytics from './enterpriseAnalytics/EnterpriseAnalytics';
+import { isBehaviourAnalyticsEnabled } from '../lib/featureFlags';
+import { canViewBehaviourAnalytics } from '../lib/permissions';
 
 const STANDARD_TARGETS = {
     Prestyle: 900,
@@ -40,7 +43,11 @@ const Dashboard = ({
 
     // Sub-tab navigation
     const [analyticsSubTab, setAnalyticsSubTab] = useState(() =>
-        analyticsDeepLink?.tab === 'ratings' ? 'ratings' : 'overview'
+        analyticsDeepLink?.tab === 'ratings'
+            ? 'ratings'
+            : analyticsDeepLink?.tab === 'behaviour'
+              ? 'behaviour'
+              : 'overview'
     );
     const [ratingDeepLink, setRatingDeepLink] = useState(analyticsDeepLink);
 
@@ -50,6 +57,8 @@ const Dashboard = ({
             setAnalyticsSubTab('ratings');
             setRatingDeepLink(analyticsDeepLink);
             if (analyticsDeepLink.client) setSelectedClient(analyticsDeepLink.client);
+        } else if (analyticsDeepLink.tab === 'behaviour') {
+            setAnalyticsSubTab('behaviour');
         }
         if (typeof onDeepLinkConsumed === 'function') onDeepLinkConsumed();
     }, [analyticsDeepLink, onDeepLinkConsumed]);
@@ -246,11 +255,20 @@ const Dashboard = ({
                     >
                         Performance Rating
                     </button>
+                    {isBehaviourAnalyticsEnabled() && canViewBehaviourAnalytics(userProfile?.role) && (
+                        <button
+                            type="button"
+                            onClick={() => setAnalyticsSubTab('behaviour')}
+                            className={`px-4 py-2 text-xs font-black uppercase tracking-wider rounded-lg transition-all ${analyticsSubTab === 'behaviour' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-550 hover:text-gray-900 dark:hover:text-gray-300'}`}
+                        >
+                            Behaviour Intelligence
+                        </button>
+                    )}
                 </div>
             </div>
 
             {/* Filters Bar (Common to overview/trends; ratings has its own controls) */}
-            {analyticsSubTab !== 'targets' && analyticsSubTab !== 'ratings' && !isPerformer && (
+            {analyticsSubTab !== 'targets' && analyticsSubTab !== 'ratings' && analyticsSubTab !== 'behaviour' && !isPerformer && (
                 <div className="bg-gray-50 dark:bg-gray-800/50 p-6 rounded-3xl border border-gray-100 dark:border-gray-800/80 flex flex-wrap items-center gap-6">
                     <div className="flex items-center gap-3">
                         <Filter size={18} className="text-blue-600" />
@@ -387,6 +405,21 @@ const Dashboard = ({
                         groupBy: ratingDeepLink?.groupBy || 'individual',
                     }}
                     onFiltersApplied={() => setRatingDeepLink(null)}
+                />
+            )}
+
+            {analyticsSubTab === 'behaviour' && isBehaviourAnalyticsEnabled() && canViewBehaviourAnalytics(userProfile?.role) && (
+                <EnterpriseAnalytics
+                    userProfile={userProfile}
+                    entries={entries}
+                    accessibleProfiles={accessibleProfiles.length ? accessibleProfiles : (userProfile ? [userProfile] : [])}
+                    clients={clients}
+                    onToast={(msg) => {
+                        if (typeof window !== 'undefined') {
+                            // Lightweight fallback if App toast not plumbed
+                            console.info(msg);
+                        }
+                    }}
                 />
             )}
         </div>

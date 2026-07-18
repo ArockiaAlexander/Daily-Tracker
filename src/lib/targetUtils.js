@@ -1,7 +1,7 @@
 export const STANDARD_TARGETS = {
     Prestyle: 900,
     Preedit: 300,
-    'FL Validation': 600,
+    'FL Validation': 600, // historical alias — prefer FP Validation for new data
     'FP Validation': 600,
     'Revises Validation': 1200,
     Normalisation: 300,
@@ -14,13 +14,20 @@ export const STANDARD_WORK_HOURS_PER_DAY = 8;
 
 export const TARGET_FREE_TASKS = new Set(['Miscellaneous']);
 
+/** Canonicalize task labels so FL Validation aggregates with FP Validation. */
+export function normalizeTaskType(taskType) {
+    if (taskType === 'FL Validation') return 'FP Validation';
+    return taskType || '';
+}
+
 export function isTargetFreeTask(taskType) {
     return TARGET_FREE_TASKS.has(taskType);
 }
 
 export function calcTargetAchievement(taskType, completedPages, takenTime) {
     if (isTargetFreeTask(taskType)) return 0;
-    const target = STANDARD_TARGETS[taskType];
+    const canonical = normalizeTaskType(taskType);
+    const target = STANDARD_TARGETS[canonical] ?? STANDARD_TARGETS[taskType];
     if (!target || !takenTime || !completedPages) return 0;
     return ((completedPages / ((target / STANDARD_WORK_HOURS_PER_DAY) * takenTime)) * 100).toFixed(2);
 }

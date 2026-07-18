@@ -20,7 +20,7 @@ const DivisionTargetsManager = ({
         if (targetSubDivision === 'PreEdit') {
             setTargetTaskType('Preedit');
         } else {
-            setTargetTaskType('FL Validation');
+            setTargetTaskType('FP Validation');
         }
     }, [targetSubDivision]);
 
@@ -153,7 +153,7 @@ const DivisionTargetsManager = ({
                                     </>
                                 ) : (
                                     <>
-                                        <option value="FL Validation">FL Validation (Standard: 600)</option>
+                                        <option value="FP Validation">FP Validation (Standard: 600)</option>
                                         <option value="Revises Validation">Revises Validation (Standard: 1200)</option>
                                     </>
                                 )}

@@ -16,7 +16,10 @@ Practical notes for maintainers. Prefer this file over outdated marketing README
 2. `ADD_DIVISION_TARGETS.sql`  
 3. `MISC_HOURS_RANGE_CONSTRAINT.sql` (replaces global 1–4)  
 4. `EMAIL_CONFIRMED_SYNC.sql`  
-5. `WEEKLY_REPORT_DELIVERIES.sql` (if using weekly email)
+5. `WEEKLY_REPORT_DELIVERIES.sql` (if using weekly email)  
+6. **Enterprise:** `ROLE_RLS_PREFLIGHT.sql` → `SMART_REQUEST_HUB_PHASE1.sql` → `ENTERPRISE_NOTIFICATIONS_PHASE2.sql` → `ENTERPRISE_ANALYTICS_PHASE3.sql`  
+7. Run matching `*_VERIFY.sql` scripts after each enterprise migration  
+8. Duplicate audit only: `STATUS_ENTRIES_DUPLICATES_REPORT.sql` — **do not** add a unique index until cleaned
 
 ---
 
@@ -36,12 +39,18 @@ If an old global 1–4 constraint is still live, inserts of 6–8h on Preedit wi
 |----------|------|-----------------|
 | `invite-user` | `supabase/functions/invite-user` | `APP_URL`, platform `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`; caller must be GM/super_admin JWT |
 | `weekly-performance-report` | `supabase/functions/weekly-performance-report` | `APP_URL`, Gmail SMTP secrets if switched from Resend; partition by client+sub_division |
+| `dispatch-notification` | `supabase/functions/dispatch-notification` | JWT caller; service role inserts notifications |
+| `request-hub-reminders` | `supabase/functions/request-hub-reminders` | Cron + service role; see `docs/REQUEST_HUB_REMINDERS.md` |
+| `calculate-behaviour-snapshots` | `supabase/functions/calculate-behaviour-snapshots` | Cron + service role; see `docs/BEHAVIOUR_SNAPSHOTS.md` |
 
 Deploy example:
 
 ```bash
 supabase functions deploy invite-user
 supabase functions deploy weekly-performance-report
+supabase functions deploy dispatch-notification
+supabase functions deploy request-hub-reminders
+supabase functions deploy calculate-behaviour-snapshots
 ```
 
 Frontend calls invite via:
@@ -64,25 +73,26 @@ Do not expect Auth SMTP alone to power arbitrary Edge Function emails unless the
 
 ## 5. Naming inconsistencies to watch
 
-- Entry form / App targets: **`FP Validation`**
-- Some analytics / `STANDARD_TARGETS` copies: **`FL Validation`**
-- Prefer aligning both to one label over time; until then, division targets and filters may miss matches across the two names.
-- Role enum historically used `assistant_manager` in SQL while UI uses `manager` — confirm live enum values before casting in triggers.
+- Entry form / Division Targets: **`FP Validation`** (canonical).
+- Historical rows / maps may still contain **`FL Validation`** — `normalizeTaskType()` aliases FL → FP for scoring.
+- Role enum historically used `assistant_manager` in SQL while UI uses `manager` — run `ROLE_RLS_PREFLIGHT.sql` before enterprise RLS.
+- **Behaviour Score** ≠ **Performance Rating** — do not merge UI labels.
 
 ---
 
 ## 6. Dead / secondary code
 
-- [`src/components/Leaderboard.jsx`](src/components/Leaderboard.jsx) — not mounted in Analytics tabs; Performance Rating is the active ranking UX.
+- [`src/components/Leaderboard.jsx`](src/components/Leaderboard.jsx) — not mounted; use Behaviour Intelligence leaderboards or Performance Rating instead.
 - Duplicate target maps in `App.jsx`, `Dashboard.jsx`, `targetUtils.js` — change all three when adjusting standards.
 
 ---
 
 ## 7. Routing and auth callbacks
 
-- App tabs: `#form`, `#analytics`, `#admin` (mapped inside `App.jsx`).
+- App tabs: `#form`, `#analytics`, `#request-hub`, `#admin` (mapped inside `App.jsx`).
 - Auth redirect URL must be **origin + base path without `#`**. Tokens arrive in hash; `completeAuthCallback` sets session then sanitizes to `#invite-accept` / `#reset-password` / `#login`.
 - Double-hash quirks (`#login#access_token=...`) are handled in `authRedirect.js`.
+- Level 3 Analytics flags default **off** until Phase 3 SQL is applied (`VITE_ENABLE_BEHAVIOUR_ANALYTICS=true`, etc.).
 
 ---
 

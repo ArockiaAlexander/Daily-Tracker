@@ -19,6 +19,12 @@ Capability catalog: what the product can do, inputs/outputs, and who can use eac
 | S09 | Invite / provision users | Admin Invite: GM+; Provision/Add: GM+ |
 | S10 | Manage workflows | Admin |
 | S11 | Weekly division performance email | System (Edge Function) |
+| S12 | Raise Smart Request Hub request | All authenticated |
+| S13 | Review Smart Request Hub request | Leads / managers / admins |
+| S14 | Receive notifications | All authenticated |
+| S15 | Review Behaviour Intelligence | Leads / managers / admins (flag) |
+| S16 | Manage Feedback | Manager / GM / super_admin (flag) |
+| S17 | Super Admin governance | super_admin (flag) |
 
 ---
 
@@ -33,12 +39,13 @@ Capability catalog: what the product can do, inputs/outputs, and who can use eac
 
 ## S02 — Log daily task entry
 
-- **Inputs:** Performer, date, client, sub-division, title, task type, completed work, estimated hours, taken hours  
-- **Outputs:** `status_entries` row with `timeAchieved`, `targetAchieved`, `status`  
+- **Inputs:** Performer, date, client, sub-division, title, optional batch 1–25, task type, completed work, estimated hours, taken hours  
+- **Outputs:** `status_entries` row with `timeAchieved`, `targetAchieved`, `status`, optional `batch_number`  
 - **Rules:**
   - Misc: hours 1–4; target N/A; status `N/A`
   - Other tasks: hours &gt; 0; target from division override or standard map
   - Achievement ≥100% → `Achieved`, else `Keep Trying!`
+  - Optional duplicate guard (flag): same date + performer + title + task type → confirm before insert
 - **Components:** `App.jsx` form; `getTargetForEntry`
 
 ---
@@ -65,7 +72,7 @@ Capability catalog: what the product can do, inputs/outputs, and who can use eac
 
 - **Inputs:** Client, sub-division, task type, target value  
 - **Outputs:** Upsert/delete in `division_targets`  
-- **Rules:** Used for entry and analytics achievement when matching scope  
+- **Rules:** Validation task type is **`FP Validation`** (canonical); historical `FL Validation` still aliases in maps  
 - **Components:** `DivisionTargetsManager`
 
 ---
@@ -129,6 +136,62 @@ Capability catalog: what the product can do, inputs/outputs, and who can use eac
 
 ---
 
+## S12 — Raise Smart Request Hub request
+
+- **Inputs:** Category, title, description, client, screenshots (optional)  
+- **Outputs:** `request_hub_tickets` with `SRH-########`; audit event; optional notifications  
+- **Components:** `SmartRequestHub`, `requestHubService`  
+- **Route:** `#request-hub`  
+- **Flag:** `VITE_ENABLE_SMART_REQUEST_HUB`
+
+---
+
+## S13 — Review Smart Request Hub request
+
+- **Inputs:** Ticket id; workflow action (approve, assign, resolve, close, …)  
+- **Outputs:** Status/priority/assignee updates + `request_hub_events`  
+- **Rules:** Close = manager+; RLS scopes visibility  
+- **Components:** `RequestDetail`, `RequestActions`
+
+---
+
+## S14 — Receive notifications
+
+- **Inputs:** Trusted dispatch from Request Hub / Daily Tracker events  
+- **Outputs:** Bell unread count; drawer / center actions  
+- **Components:** `NotificationProvider`, `dispatch-notification` Edge Function  
+- **Flag:** `VITE_ENABLE_NOTIFICATIONS`
+
+---
+
+## S15 — Review Behaviour Intelligence
+
+- **Inputs:** Entries + optional snapshots; period filters  
+- **Outputs:** Behaviour Score 0–100 (not Performance Rating); manager dashboard; leaderboards; heatmaps  
+- **Components:** `EnterpriseAnalytics`, `behaviourScore.js`  
+- **Deep link:** `#analytics?tab=behaviour`  
+- **Flag:** `VITE_ENABLE_BEHAVIOUR_ANALYTICS=true` (default off)
+
+---
+
+## S16 — Manage Feedback
+
+- **Inputs:** Internal/External feedback fields  
+- **Outputs:** `feedback_records` (+ soft-archive)  
+- **Components:** `FeedbackModule`  
+- **Flag:** `VITE_ENABLE_FEEDBACK_MODULE=true`
+
+---
+
+## S17 — Super Admin governance
+
+- **Inputs:** Ticket override / transfer / merge / archive / restore + required reason  
+- **Outputs:** Ticket updates + `enterprise_audit_log`  
+- **Components:** `SuperAdminGovernance`  
+- **Flag:** `VITE_ENABLE_SUPER_ADMIN_GOVERNANCE=true`
+
+---
+
 ## Role × skill matrix (summary)
 
 | Skill | Performer | Team/Group Lead | Manager | GM / Super Admin |
@@ -140,5 +203,9 @@ Capability catalog: what the product can do, inputs/outputs, and who can use eac
 | S05 Targets | — | Y* | Y | Y |
 | S08–S10 Admin | — | — | Partial | Full |
 | S09 Admin Invite | — | — | — | Y |
+| S12–S14 Request Hub / Notify | Y | Y | Y | Y |
+| S15 Behaviour | — | Y (flag) | Y | Y |
+| S16 Feedback | — | — | Y (flag) | Y |
+| S17 Governance | — | — | — | Super admin (flag) |
 
 \*Division Targets tab available to leads/managers as mounted in Dashboard.
