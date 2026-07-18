@@ -571,7 +571,12 @@ const App = () => {
         return standardTargets[task] || 0;
     };
 
-    const isHoursInRange = (value) => {
+    const isPositiveHours = (value) => {
+        const n = Number(value);
+        return Number.isFinite(n) && n > 0;
+    };
+
+    const isMiscHoursInRange = (value) => {
         const n = Number(value);
         return Number.isFinite(n) && n >= MIN_HOURS && n <= MAX_HOURS;
     };
@@ -590,8 +595,14 @@ const App = () => {
             setShowErrorModal(true);
             return;
         }
-        if (!isHoursInRange(estimatedTime) || !isHoursInRange(takenTime)) {
-            setToastMessage(`❌ Estimated and Taken Hours must be between ${MIN_HOURS} and ${MAX_HOURS}`);
+        if (isMiscellaneous) {
+            if (!isMiscHoursInRange(estimatedTime) || !isMiscHoursInRange(takenTime)) {
+                setToastMessage(`❌ Miscellaneous Estimated and Taken Hours must be between ${MIN_HOURS} and ${MAX_HOURS}`);
+                setShowToast(true);
+                return;
+            }
+        } else if (!isPositiveHours(estimatedTime) || !isPositiveHours(takenTime)) {
+            setToastMessage('❌ Estimated and Taken Hours must be greater than 0');
             setShowToast(true);
             return;
         }
@@ -1118,13 +1129,39 @@ const App = () => {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div>
                                             <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Estimated Hours</label>
-                                            <input type="number" value={estimatedTime} onChange={e => setEstimatedTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" min={MIN_HOURS} max={MAX_HOURS} placeholder="1.0 – 4.0" required />
-                                            <p className="text-[10px] text-gray-400 mt-1 ml-1">Allowed range: {MIN_HOURS}–{MAX_HOURS} hours</p>
+                                            <input
+                                                type="number"
+                                                value={estimatedTime}
+                                                onChange={e => setEstimatedTime(e.target.value)}
+                                                className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium"
+                                                step="0.1"
+                                                min={isMiscellaneous ? MIN_HOURS : 0.1}
+                                                max={isMiscellaneous ? MAX_HOURS : undefined}
+                                                placeholder={isMiscellaneous ? '1.0 – 4.0' : '8.0'}
+                                                required
+                                            />
+                                            {isMiscellaneous ? (
+                                                <p className="text-[10px] text-gray-400 mt-1 ml-1">Miscellaneous only: {MIN_HOURS}–{MAX_HOURS} hours</p>
+                                            ) : (
+                                                <p className="text-[10px] text-gray-400 mt-1 ml-1">Manual entry (auto-estimate coming later)</p>
+                                            )}
                                         </div>
                                         <div>
                                             <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Taken Hours</label>
-                                            <input type="number" value={takenTime} onChange={e => setTakenTime(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium" step="0.1" min={MIN_HOURS} max={MAX_HOURS} placeholder="1.0 – 4.0" required />
-                                            <p className="text-[10px] text-gray-400 mt-1 ml-1">Allowed range: {MIN_HOURS}–{MAX_HOURS} hours</p>
+                                            <input
+                                                type="number"
+                                                value={takenTime}
+                                                onChange={e => setTakenTime(e.target.value)}
+                                                className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium"
+                                                step="0.1"
+                                                min={isMiscellaneous ? MIN_HOURS : 0.1}
+                                                max={isMiscellaneous ? MAX_HOURS : undefined}
+                                                placeholder={isMiscellaneous ? '1.0 – 4.0' : '7.5'}
+                                                required
+                                            />
+                                            {isMiscellaneous ? (
+                                                <p className="text-[10px] text-gray-400 mt-1 ml-1">Miscellaneous only: {MIN_HOURS}–{MAX_HOURS} hours</p>
+                                            ) : null}
                                         </div>
                                     </div>
 
