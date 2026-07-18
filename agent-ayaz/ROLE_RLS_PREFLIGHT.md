@@ -45,7 +45,9 @@ What it does **not** do:
 - Rerun `FRESH_SUPABASE_SETUP.sql`.
 - Create Smart Request Hub tables.
 
-## Gate
+## Gate (Level 1 + Level 2 build)
+
+**Required before** `SMART_REQUEST_HUB_PHASE1.sql` and `ENTERPRISE_NOTIFICATIONS_PHASE2.sql`.
 
 Do not apply `SMART_REQUEST_HUB_PHASE1.sql` until verification shows:
 

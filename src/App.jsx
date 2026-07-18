@@ -15,6 +15,11 @@ import ChangePassword from './components/ChangePassword';
 import AdminResetUserPassword from './components/AdminResetUserPassword';
 import AdminUserRow from './components/AdminUserRow';
 import ClientManagement from './components/ClientManagement';
+import SmartRequestHub from './components/requestHub/SmartRequestHub';
+import { NotificationProvider } from './components/notifications/NotificationProvider';
+import NotificationBell from './components/notifications/NotificationBell';
+import NotificationDrawer from './components/notifications/NotificationDrawer';
+import NotificationCenter from './components/notifications/NotificationCenter';
 import { supabase } from './lib/supabase';
 import {
     completeAuthCallback,
@@ -26,6 +31,8 @@ import {
 } from './lib/authRedirect';
 import { parseAnalyticsHash } from './lib/performanceRating';
 import { deriveDisplayNameFromEmail, isValidEmail } from './lib/displayName';
+import { isSmartRequestHubEnabled, isNotificationsEnabled } from './lib/featureFlags';
+import { notifyDailyTrackerEvent } from './lib/notifications/notificationRules';
 import {
     LayoutDashboard,
     ClipboardList,
@@ -44,15 +51,19 @@ import {
     Check,
     Trash2,
     Lock,
-    KeyRound
+    KeyRound,
+    Inbox,
 } from 'lucide-react';
 
 const App = () => {
     // ── Hash Routing Constants ──
-    const HASH_TO_TAB = { form: 'form', analytics: 'dashboard', admin: 'super_admin' };
-    const TAB_TO_HASH = { form: 'form', dashboard: 'analytics', super_admin: 'admin' };
+    const HASH_TO_TAB = { form: 'form', analytics: 'dashboard', 'request-hub': 'request_hub', admin: 'super_admin' };
+    const TAB_TO_HASH = { form: 'form', dashboard: 'analytics', request_hub: 'request-hub', super_admin: 'admin' };
     // App-tab hashes that should resolve to the app view when authenticated
-    const APP_HASHES = new Set(['form', 'analytics', 'admin']);
+    const APP_HASHES = new Set(['form', 'analytics', 'request-hub', 'admin']);
+    const requestHubEnabled = isSmartRequestHubEnabled();
+    const notificationsEnabled = isNotificationsEnabled();
+    const [requestHubTicketId, setRequestHubTicketId] = useState(null);
 
     const getHashPath = () => {
         const raw = window.location.hash.slice(1);
@@ -248,6 +259,11 @@ const App = () => {
         const onHashChange = () => {
             if (view !== 'app') return;
             const parsed = parseAnalyticsHash(window.location.hash);
+            if (parsed.path === 'request-hub' && !requestHubEnabled) {
+                setActiveTab('form');
+                window.location.hash = '#form';
+                return;
+            }
             const mapped = HASH_TO_TAB[parsed.path];
             if (mapped && mapped !== activeTab) {
                 setActiveTab(mapped);
@@ -258,7 +274,36 @@ const App = () => {
         };
         window.addEventListener('hashchange', onHashChange);
         return () => window.removeEventListener('hashchange', onHashChange);
-    }, [view, activeTab]);
+    }, [view, activeTab, requestHubEnabled]);
+
+    // Redirect disabled Smart Request Hub tab
+    useEffect(() => {
+        if (view === 'app' && activeTab === 'request_hub' && !requestHubEnabled) {
+            setActiveTab('form');
+            window.location.hash = '#form';
+        }
+    }, [view, activeTab, requestHubEnabled]);
+
+    // Open Request Hub ticket from notification deep-link
+    useEffect(() => {
+        const openFromStorage = () => {
+            const id = sessionStorage.getItem('srh_open_ticket');
+            if (id && requestHubEnabled) {
+                setRequestHubTicketId(id);
+                setActiveTab('request_hub');
+                sessionStorage.removeItem('srh_open_ticket');
+            }
+        };
+        const onOpen = (e) => {
+            if (e?.detail?.id && requestHubEnabled) {
+                setRequestHubTicketId(e.detail.id);
+                setActiveTab('request_hub');
+            }
+        };
+        openFromStorage();
+        window.addEventListener('srh-open-ticket', onOpen);
+        return () => window.removeEventListener('srh-open-ticket', onOpen);
+    }, [requestHubEnabled]);
 
     // ── App Data Effects ──
     useEffect(() => {
@@ -643,6 +688,19 @@ const App = () => {
         await syncToSupabase(newEntry);
         setTitleName(''); setCompletedPages(''); setTaskType(''); setEstimatedTime(''); setTakenTime('');
         setToastMessage('✅ Status saved and synced!'); setShowToast(true);
+        if (notificationsEnabled && canSelectPerformerOnForm && performerName !== profile?.performer_name) {
+            const selectedProf = accessibleProfiles.find((p) => p.performer_name === performerName);
+            if (selectedProf?.id && selectedProf.id !== session?.user?.id) {
+                notifyDailyTrackerEvent({
+                    type: 'entry_on_behalf',
+                    receiverIds: [selectedProf.id],
+                    title: 'Entry logged on your behalf',
+                    message: `${profile?.performer_name || 'A manager'} logged an entry for ${entryDate}`,
+                    senderId: session?.user?.id,
+                    entryId: null,
+                }).catch(() => {});
+            }
+        }
     };
 
     const handleDeleteEntry = async (id) => {
@@ -653,11 +711,22 @@ const App = () => {
         }
         if (!window.confirm('Delete this entry?')) return;
         try {
+            const existing = statusEntries.find((e) => e.id === id);
             const { error } = await supabase.from('status_entries').delete().eq('id', id);
             if (error) throw error;
             setStatusEntries(prev => prev.filter(e => e.id !== id));
             setToastMessage('🗑️ Entry deleted');
             setShowToast(true);
+            if (notificationsEnabled && existing?.user_id && existing.user_id !== session?.user?.id) {
+                notifyDailyTrackerEvent({
+                    type: 'entry_deleted',
+                    receiverIds: [existing.user_id],
+                    title: 'Daily entry deleted',
+                    message: `${profile?.performer_name || 'A manager'} deleted your entry for ${existing.date || 'a date'}`,
+                    senderId: session?.user?.id,
+                    entryId: null,
+                }).catch(() => {});
+            }
         } catch (err) {
             setToastMessage('❌ Error: ' + err.message);
             setShowToast(true);
@@ -767,9 +836,11 @@ const App = () => {
     }
 
     return (
-        <>
+        <NotificationProvider enabled={notificationsEnabled}>
             <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-800 dark:text-gray-100 p-4 transition-colors duration-300 font-sans">
                 <Toast show={showToast} message={toastMessage} onDone={() => setShowToast(false)} />
+                <NotificationDrawer />
+                <NotificationCenter />
 
                 <nav className="container mx-auto max-w-7xl mb-6 bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
                     <div className="flex items-center gap-3">
@@ -790,6 +861,7 @@ const App = () => {
                             <User size={14} className="text-gray-400" />
                             <span>{session.user.email}</span>
                         </div>
+                        <NotificationBell />
                         <button 
                             onClick={() => setShowChangePasswordModal(true)} 
                             className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 transition-colors"
@@ -826,6 +898,11 @@ const App = () => {
                         <button onClick={() => setActiveTab('dashboard')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                             <LayoutDashboard size={18} />Analytics
                         </button>
+                        {requestHubEnabled && (
+                            <button onClick={() => setActiveTab('request_hub')} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'request_hub' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                                <Inbox size={18} />Smart Request Hub
+                            </button>
+                        )}
                         {['super_admin', 'general_manager', 'manager'].includes(profile?.role) && (
                             <button onClick={() => { setActiveTab('super_admin'); setAdminSubTab('users'); }} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'super_admin' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
                                 <Users size={18} />Administration
@@ -846,6 +923,13 @@ const App = () => {
                             accessibleProfiles={accessibleProfiles}
                             analyticsDeepLink={analyticsDeepLink}
                             onDeepLinkConsumed={() => setAnalyticsDeepLink(null)}
+                        />
+                    ) : activeTab === 'request_hub' && requestHubEnabled ? (
+                        <SmartRequestHub
+                            profile={profile}
+                            clients={clients}
+                            initialTicketId={requestHubTicketId}
+                            onToast={(msg) => { setToastMessage(msg); setShowToast(true); }}
                         />
                     ) : activeTab === 'super_admin' ? (
                         <div className="space-y-8">
@@ -1388,7 +1472,7 @@ const App = () => {
                     onPasswordReset={() => fetchAllProfiles()}
                 />
             )}
-        </>
+        </NotificationProvider>
     );
 };
 
