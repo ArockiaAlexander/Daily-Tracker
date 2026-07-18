@@ -34,6 +34,14 @@ import { deriveDisplayNameFromEmail, isValidEmail } from './lib/displayName';
 import { isSmartRequestHubEnabled, isNotificationsEnabled, isEntryDuplicateGuardEnabled } from './lib/featureFlags';
 import { notifyDailyTrackerEvent } from './lib/notifications/notificationRules';
 import {
+    STANDARD_TARGETS,
+    STANDARD_WORK_HOURS_PER_DAY,
+    TARGET_INFO_ROWS,
+    TARGET_UNITS,
+    calcEstimatedHours,
+    normalizeTaskType,
+} from './lib/targetUtils';
+import {
     LayoutDashboard,
     ClipboardList,
     RefreshCw,
@@ -53,6 +61,7 @@ import {
     Lock,
     KeyRound,
     Inbox,
+    Info,
 } from 'lucide-react';
 
 const App = () => {
@@ -117,6 +126,7 @@ const App = () => {
     const [toastMessage, setToastMessage] = useState('');
     const [accessibleProfiles, setAccessibleProfiles] = useState([]);
     const [showErrorModal, setShowErrorModal] = useState(false);
+    const [showTargetInfoModal, setShowTargetInfoModal] = useState(false);
     const [activeTab, setActiveTab] = useState(getInitialTab);
     const [isSyncing, setIsSyncing] = useState(false);
     const [clients, setClients] = useState([]);
@@ -618,24 +628,26 @@ const App = () => {
     // ── Config ──
     const MIN_HOURS = 1;
     const MAX_HOURS = 4;
-    const standardTargets = {
-        Prestyle: 900, Preedit: 300, 'FP Validation': 600, 'Revises Validation': 1200,
-        Normalisation: 300, 'Cast-off XML Conversion': 4, 'Ref Edit': 400, 'Style Editing': 80
-    };
+    const standardTargets = STANDARD_TARGETS;
     // Selectable task types; Miscellaneous has no productivity target
-    const taskTypeOptions = [...Object.keys(standardTargets), 'Miscellaneous'];
-    const STANDARD_WORK_HOURS_PER_DAY = 8;
+    const taskTypeOptions = [...Object.keys(standardTargets).filter((task) => task !== 'FL Validation'), 'Miscellaneous'];
     const MOTIVATIONAL_MESSAGE = 'Keep Trying!';
+
+    const getDivisionTargetOverride = (task, client, subDiv) => {
+        const canonicalTask = normalizeTaskType(task);
+        return divisionTargets.find(t =>
+            t.client_id === client &&
+            t.sub_division === subDiv &&
+            normalizeTaskType(t.task_type) === canonicalTask
+        );
+    };
 
     const getTargetForEntry = (task, client, subDiv) => {
         if (task === 'Miscellaneous') return 0;
-        const custom = divisionTargets.find(t => 
-            t.client_id === client && 
-            t.sub_division === subDiv && 
-            t.task_type === task
-        );
+        const custom = getDivisionTargetOverride(task, client, subDiv);
         if (custom) return Number(custom.target_value);
-        return standardTargets[task] || 0;
+        const canonicalTask = normalizeTaskType(task);
+        return standardTargets[canonicalTask] || standardTargets[task] || 0;
     };
 
     const isPositiveHours = (value) => {
@@ -652,8 +664,24 @@ const App = () => {
 
     const activeTargetVal = taskType ? getTargetForEntry(taskType, selectedClient, selectedSubDivision) : 0;
     const isMiscellaneous = taskType === 'Miscellaneous';
+    const activeTargetOverride = taskType ? getDivisionTargetOverride(taskType, selectedClient, selectedSubDivision) : null;
+    const activeTargetSource = activeTargetOverride ? 'Division Override' : 'Standard Target';
+    const activeTargetUnit = TARGET_UNITS[normalizeTaskType(taskType)] || TARGET_UNITS[taskType] || 'items/day';
     const targetAchievedPercentage = !isMiscellaneous && taskType && activeTargetVal > 0 && takenTime > 0
         ? ((completedPages / ((activeTargetVal / STANDARD_WORK_HOURS_PER_DAY) * takenTime)) * 100).toFixed(2) : 0;
+
+    useEffect(() => {
+        if (!taskType) {
+            setEstimatedTime('');
+            return;
+        }
+        if (isMiscellaneous) {
+            setEstimatedTime('');
+            return;
+        }
+        const autoEstimatedHours = calcEstimatedHours(taskType, completedPages, activeTargetVal);
+        setEstimatedTime(autoEstimatedHours > 0 ? autoEstimatedHours.toFixed(2) : '');
+    }, [taskType, completedPages, activeTargetVal, isMiscellaneous]);
 
     // ── Handlers ──
     const handleSubmit = async (e) => {
@@ -1409,11 +1437,25 @@ const App = () => {
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div>
-                                            <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Task Type</label>
+                                            <div className="flex items-center justify-between gap-3 mb-2 ml-1">
+                                                <label className="block text-xs font-black uppercase tracking-widest text-gray-400">Task Type</label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowTargetInfoModal(true)}
+                                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[10px] font-black uppercase tracking-wider hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                                                >
+                                                    <Info size={13} /> Target Info
+                                                </button>
+                                            </div>
                                             <select value={taskType} onChange={e => setTaskType(e.target.value)} className="w-full p-3.5 rounded-xl border border-gray-200 dark:border-gray-700 dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E')] bg-[length:20px_20px] bg-[right_1rem_center] bg-no-repeat font-medium" required>
                                                 <option value="">Select Task</option>
                                                 {taskTypeOptions.map(k => <option key={k} value={k}>{k}</option>)}
                                             </select>
+                                            {taskType && !isMiscellaneous ? (
+                                                <p className="text-[10px] text-gray-400 mt-1 ml-1">
+                                                    Target: {activeTargetVal} {activeTargetUnit} · Source: {activeTargetSource}
+                                                </p>
+                                            ) : null}
                                         </div>
                                         <div>
                                             <label className="block text-xs font-black uppercase tracking-widest text-gray-400 mb-2 ml-1">Completed Task (Pages/Titles/References)</label>
@@ -1432,13 +1474,14 @@ const App = () => {
                                                 step="0.1"
                                                 min={isMiscellaneous ? MIN_HOURS : 0.1}
                                                 max={isMiscellaneous ? MAX_HOURS : undefined}
-                                                placeholder={isMiscellaneous ? '1.0 – 4.0' : '8.0'}
+                                                placeholder={isMiscellaneous ? '1.0 – 4.0' : 'Auto'}
+                                                readOnly={!isMiscellaneous}
                                                 required
                                             />
                                             {isMiscellaneous ? (
                                                 <p className="text-[10px] text-gray-400 mt-1 ml-1">Miscellaneous only: {MIN_HOURS}–{MAX_HOURS} hours</p>
                                             ) : (
-                                                <p className="text-[10px] text-gray-400 mt-1 ml-1">Manual entry (auto-estimate coming later)</p>
+                                                <p className="text-[10px] text-gray-400 mt-1 ml-1">Auto: Completed Work × 8 ÷ Daily Target</p>
                                             )}
                                         </div>
                                         <div>
@@ -1485,6 +1528,96 @@ const App = () => {
                     &copy; {new Date().getFullYear()} CBPET Engine Alpha • Real-time Monitoring Active
                 </footer>
             </div>
+
+            <Modal
+                show={showTargetInfoModal}
+                onClose={() => setShowTargetInfoModal(false)}
+                maxWidth="max-w-5xl"
+            >
+                <div className="text-left">
+                    <div className="flex items-start justify-between gap-4 mb-5">
+                        <div>
+                            <h2 className="text-xl font-black text-gray-900 dark:text-white">Daily Targets & Score Formula</h2>
+                            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mt-1">
+                                Estimated Hours are calculated from completed work against the active daily target.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowTargetInfoModal(false)}
+                            className="px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-xs font-black uppercase tracking-wider text-gray-600 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                        >
+                            Close
+                        </button>
+                    </div>
+
+                    <div className="mb-4 rounded-xl border border-blue-100 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-950/30 px-4 py-3">
+                        {taskType ? (
+                            <p className="text-xs font-bold text-blue-900 dark:text-blue-200">
+                                {isMiscellaneous
+                                    ? 'Current task is Miscellaneous: estimated and taken hours are manual, allowed range 1-4 hours.'
+                                    : `Current task uses ${activeTargetSource.toLowerCase()}: ${activeTargetVal} ${activeTargetUnit}.`}
+                            </p>
+                        ) : (
+                            <p className="text-xs font-bold text-blue-900 dark:text-blue-200">
+                                Select a task to highlight its target and active source.
+                            </p>
+                        )}
+                    </div>
+
+                    <div className="max-h-[55vh] overflow-auto rounded-xl border border-gray-200 dark:border-gray-700">
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                            <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
+                                <tr>
+                                    <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-gray-500">Task Type</th>
+                                    <th className="px-4 py-3 text-right text-[10px] font-black uppercase tracking-widest text-gray-500">Daily Target</th>
+                                    <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-gray-500">Unit</th>
+                                    <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-gray-500">Estimated Hours Formula</th>
+                                    <th className="px-4 py-3 text-left text-[10px] font-black uppercase tracking-widest text-gray-500">Example</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-900">
+                                {TARGET_INFO_ROWS.map((row) => {
+                                    const isActiveRow = normalizeTaskType(taskType) === row.taskType || taskType === row.taskType;
+                                    return (
+                                        <tr
+                                            key={row.taskType}
+                                            className={isActiveRow ? 'bg-blue-50 dark:bg-blue-950/40' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'}
+                                        >
+                                            <td className="px-4 py-3 font-bold text-gray-900 dark:text-white">{row.taskType}</td>
+                                            <td className="px-4 py-3 text-right font-mono text-gray-700 dark:text-gray-300">{row.target ?? 'none'}</td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{row.unit}</td>
+                                            <td className="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">{row.formula}</td>
+                                            <td className="px-4 py-3 font-mono text-xs text-gray-700 dark:text-gray-300">{row.example}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
+                        <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-800/50">
+                            <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Productive Task Formula</h3>
+                            <div className="space-y-2 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                <p><span className="font-mono">Estimated Hours = Completed Work × 8 ÷ Daily Target</span></p>
+                                <p><span className="font-mono">Time Achieved % = Estimated Hours ÷ Taken Hours × 100</span></p>
+                                <p><span className="font-mono">Target Achieved % = Completed Work ÷ ((Daily Target ÷ 8) × Taken Hours) × 100</span></p>
+                                <p><span className="font-mono">Performance Score = 60% Target Achieved + 40% Time Achieved</span></p>
+                            </div>
+                        </div>
+                        <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-800/50">
+                            <h3 className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Miscellaneous Rule</h3>
+                            <div className="space-y-2 text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                <p>Miscellaneous has no productivity target.</p>
+                                <p>Estimated Hours and Taken Hours are entered manually.</p>
+                                <p>Allowed range: 1-4 hours.</p>
+                                <p><span className="font-mono">Misc Score = min((Taken Hours ÷ 8) × 100, 100)</span></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Modal>
 
             {/* Password Management Modals */}
             {showChangePasswordModal && (

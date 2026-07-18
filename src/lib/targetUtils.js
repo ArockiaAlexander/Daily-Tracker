@@ -10,9 +10,34 @@ export const STANDARD_TARGETS = {
     'Style Editing': 80,
 };
 
+export const TARGET_UNITS = {
+    Prestyle: 'pages/day',
+    Preedit: 'pages/day',
+    'FL Validation': 'pages/day',
+    'FP Validation': 'pages/day',
+    'Revises Validation': 'pages/day',
+    Normalisation: 'pages/day',
+    'Cast-off XML Conversion': 'titles/day',
+    'Ref Edit': 'refs/day',
+    'Style Editing': 'pages/day',
+    Miscellaneous: 'hours',
+};
+
 export const STANDARD_WORK_HOURS_PER_DAY = 8;
 
 export const TARGET_FREE_TASKS = new Set(['Miscellaneous']);
+
+export const TARGET_INFO_ROWS = [
+    { taskType: 'Prestyle', target: 900, unit: 'pages/day', formula: 'Completed × 8 ÷ 900', example: '450 × 8 ÷ 900 = 4h' },
+    { taskType: 'Preedit', target: 300, unit: 'pages/day', formula: 'Completed × 8 ÷ 300', example: '150 × 8 ÷ 300 = 4h' },
+    { taskType: 'FP Validation', target: 600, unit: 'pages/day', formula: 'Completed × 8 ÷ 600', example: '300 × 8 ÷ 600 = 4h' },
+    { taskType: 'Revises Validation', target: 1200, unit: 'pages/day', formula: 'Completed × 8 ÷ 1200', example: '600 × 8 ÷ 1200 = 4h' },
+    { taskType: 'Normalisation', target: 300, unit: 'pages/day', formula: 'Completed × 8 ÷ 300', example: '150 × 8 ÷ 300 = 4h' },
+    { taskType: 'Cast-off XML Conversion', target: 4, unit: 'titles/day', formula: 'Completed × 8 ÷ 4', example: '2 × 8 ÷ 4 = 4h' },
+    { taskType: 'Ref Edit', target: 400, unit: 'refs/day', formula: 'Completed × 8 ÷ 400', example: '200 × 8 ÷ 400 = 4h' },
+    { taskType: 'Style Editing', target: 80, unit: 'pages/day', formula: 'Completed × 8 ÷ 80', example: '40 × 8 ÷ 80 = 4h' },
+    { taskType: 'Miscellaneous', target: null, unit: 'hours', formula: 'Manual only', example: '1-4h allowed' },
+];
 
 /** Canonicalize task labels so FL Validation aggregates with FP Validation. */
 export function normalizeTaskType(taskType) {
@@ -22,6 +47,14 @@ export function normalizeTaskType(taskType) {
 
 export function isTargetFreeTask(taskType) {
     return TARGET_FREE_TASKS.has(taskType);
+}
+
+export function calcEstimatedHours(taskType, completedWork, dailyTarget) {
+    if (isTargetFreeTask(taskType)) return 0;
+    const work = Number(completedWork);
+    const target = Number(dailyTarget);
+    if (!Number.isFinite(work) || !Number.isFinite(target) || work <= 0 || target <= 0) return 0;
+    return Number(((work * STANDARD_WORK_HOURS_PER_DAY) / target).toFixed(2));
 }
 
 export function calcTargetAchievement(taskType, completedPages, takenTime) {

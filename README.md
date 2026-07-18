@@ -126,6 +126,10 @@ Division overrides: `division_targets` (client + sub_division + task_type).
 
 `completedPages / ((target / 8) * takenTime) * 100`
 
+**Estimated hours (non-Misc):**
+
+`completedPages * 8 / target`
+
 **Time efficiency:**
 
 `estimatedTime / takenTime * 100`
@@ -135,7 +139,7 @@ Division overrides: `division_targets` (client + sub_division + task_type).
 | Task | Estimated / Taken |
 |------|-------------------|
 | Miscellaneous | **1.0–4.0** only (UI + DB conditional checks) |
-| All other tasks | Must be **> 0**; no 1–4 cap (manual entry; auto-estimate later) |
+| All other tasks | Estimated hours auto-calculate from completed work and target; taken hours must be **> 0** |
 
 SQL: [`sql_commands/MISC_HOURS_RANGE_CONSTRAINT.sql`](sql_commands/MISC_HOURS_RANGE_CONSTRAINT.sql)
 

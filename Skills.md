@@ -39,14 +39,14 @@ Capability catalog: what the product can do, inputs/outputs, and who can use eac
 
 ## S02 — Log daily task entry
 
-- **Inputs:** Performer, date, client, sub-division, title, optional batch 1–25, task type, completed work, estimated hours, taken hours  
+- **Inputs:** Performer, date, client, sub-division, title, optional batch 1–25, task type, completed work, auto-estimated hours, taken hours  
 - **Outputs:** `status_entries` row with `timeAchieved`, `targetAchieved`, `status`, optional `batch_number`  
 - **Rules:**
   - Misc: hours 1–4; target N/A; status `N/A`
-  - Other tasks: hours &gt; 0; target from division override or standard map
+  - Other tasks: estimated hours auto-calculate as `completed work × 8 ÷ target`; target from division override or standard map; taken hours &gt; 0
   - Achievement ≥100% → `Achieved`, else `Keep Trying!`
   - Optional duplicate guard (flag): same date + performer + title + task type → confirm before insert
-- **Components:** `App.jsx` form; `getTargetForEntry`
+- **Components:** `App.jsx` form; `getTargetForEntry`; `targetUtils`
 
 ---
 

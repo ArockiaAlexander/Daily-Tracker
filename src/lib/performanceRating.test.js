@@ -14,6 +14,11 @@ import {
     getPreviousWeekRange,
     capScore,
 } from './performanceRating.js';
+import {
+    STANDARD_TARGETS,
+    calcEstimatedHours,
+    normalizeTaskType,
+} from './targetUtils.js';
 
 describe('performanceRating scoring', () => {
     it('caps scores at 100', () => {
@@ -47,6 +52,23 @@ describe('performanceRating scoring', () => {
         assert.equal(getRatingBand(90).id, 'excellent');
         assert.equal(getRatingBand(75).id, 'good');
         assert.equal(getRatingBand(74.9).id, 'needs_improvement');
+    });
+});
+
+describe('targetUtils estimated hours', () => {
+    it('estimates hours from completed work and daily target', () => {
+        assert.equal(calcEstimatedHours('Preedit', 150, STANDARD_TARGETS.Preedit), 4);
+        assert.equal(calcEstimatedHours('Prestyle', 900, STANDARD_TARGETS.Prestyle), 8);
+        assert.equal(calcEstimatedHours('Cast-off XML Conversion', 2, STANDARD_TARGETS['Cast-off XML Conversion']), 4);
+    });
+
+    it('supports FP/FL Validation alias through canonical target lookup', () => {
+        const target = STANDARD_TARGETS[normalizeTaskType('FL Validation')];
+        assert.equal(calcEstimatedHours('FL Validation', 300, target), 4);
+    });
+
+    it('keeps Miscellaneous manual', () => {
+        assert.equal(calcEstimatedHours('Miscellaneous', 2, 300), 0);
     });
 });
 

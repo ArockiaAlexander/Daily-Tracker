@@ -28,7 +28,7 @@ Practical notes for maintainers. Prefer this file over outdated marketing README
 
 - **Only `Miscellaneous`** is limited to 1–4 hours (estimated + taken).
 - Other tasks: any positive hours; placeholders suggest a full day (e.g. 8.0).
-- Auto-estimated hours for productive tasks are **not implemented yet** — leave manual.
+- Productive tasks auto-estimate hours as `completed work × 8 ÷ target`; taken hours remains manual.
 
 If an old global 1–4 constraint is still live, inserts of 6–8h on Preedit will fail until `MISC_HOURS_RANGE_CONSTRAINT.sql` is applied.
 
