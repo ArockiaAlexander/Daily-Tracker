@@ -1,8 +1,8 @@
 -- ==========================================
--- CBPET Daily Tracker - Fresh Supabase Setup
--- DEPRECATED for new projects: use sql_commands/fresh/ instead
--- (corrected roles + client hierarchy + enterprise Phases 1–3).
--- This file remains for reference; it still uses legacy assistant_manager.
+-- CBPET Daily Tracker - Fresh Supabase Setup (core)
+-- Brand-new Supabase projects ONLY.
+-- Do NOT run on production databases that already have data.
+-- Apply order: see sql_commands/fresh/README.md
 -- ==========================================
 
 begin;
@@ -10,7 +10,7 @@ begin;
 create extension if not exists pgcrypto;
 
 -- ==========================================
--- 1. ROLE TYPE
+-- 1. ROLE TYPE (six active roles; no assistant_manager)
 -- ==========================================
 do $$
 begin
@@ -22,7 +22,8 @@ begin
     create type public.user_role as enum (
       'super_admin',
       'general_manager',
-      'assistant_manager',
+      'manager',
+      'group_lead',
       'team_lead',
       'performer'
     );
@@ -536,7 +537,7 @@ using (
       select 1
       from public.profiles p
       where p.id = auth.uid()
-        and p.role = 'assistant_manager'
+        and p.role = 'manager'
     )
     and user_id in (
       select p2.id
@@ -641,7 +642,7 @@ using (
       select 1
       from public.profiles p
       where p.id = auth.uid()
-        and p.role = 'assistant_manager'
+        and p.role = 'manager'
     )
     and user_id in (
       select p2.id
@@ -814,6 +815,25 @@ grant select on public.monthly_leaderboard to authenticated;
 grant select on public.quarterly_leaderboard to authenticated;
 grant select on public.yearly_leaderboard to authenticated;
 grant select on public.team_performance to authenticated;
+
+-- Role hierarchy helper (matches live ROLE_RLS_PREFLIGHT)
+create or replace function public.get_user_role_level(user_uuid uuid)
+returns integer
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case (select role::text from public.profiles where id = user_uuid)
+    when 'super_admin' then 6
+    when 'general_manager' then 5
+    when 'manager' then 4
+    when 'group_lead' then 3
+    when 'team_lead' then 2
+    when 'performer' then 1
+    else 0
+  end;
+$$;
 
 commit;
 

@@ -7,6 +7,7 @@ Practical notes for maintainers. Prefer this file over outdated marketing README
 ## 1. Do not break live databases
 
 - **Never** re-run [`sql_commands/FRESH_SUPABASE_SETUP.sql`](sql_commands/FRESH_SUPABASE_SETUP.sql) on an existing production project.
+- For a **brand-new** Supabase project, use [`sql_commands/fresh/`](sql_commands/fresh/README.md) (`01`–`06` + `VERIFY_ALL.sql`) instead of the legacy root FRESH script.
 - Use incremental scripts (`MISC_HOURS_*`, `EMAIL_CONFIRMED_SYNC`, hierarchy, targets, weekly deliveries).
 - Constraints added with `NOT VALID` still enforce new inserts; they do not rewrite old rows.
 
